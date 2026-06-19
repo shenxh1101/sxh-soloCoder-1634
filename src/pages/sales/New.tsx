@@ -96,7 +96,8 @@ export default function NewSale() {
         discountAmount: promoResult.discountAmount,
         subtotal: promoResult.finalAmount,
         costAmount: promoResult.costAmount,
-        profit: promoResult.profit
+        profit: promoResult.profit,
+        batchDeductions: []
       });
 
       totalOriginal += promoResult.originalAmount;

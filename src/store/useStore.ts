@@ -11,7 +11,12 @@ import {
   StockAlert,
   DailySales,
   TopSeller,
-  PromotionEffect
+  PromotionEffect,
+  MedicineBatch,
+  BatchDeduction,
+  PurchaseOrder,
+  PurchaseOrderItem,
+  PurchaseOrderStatus
 } from '../types';
 import {
   daysToExpiry,
@@ -21,7 +26,7 @@ import {
 } from '../utils/date';
 import { getDailySales as calcDailySales, getTopSellers as calcTopSellers } from '../utils/statistics';
 import { calculatePromotionEffect } from '../utils/statistics';
-import { mockMedicines, mockSuppliers, mockSales, mockPromotions, mockInventoryRecords } from '../mock/initData';
+import { mockMedicines, mockSuppliers, mockSales, mockPromotions, mockInventoryRecords, mockBatches, mockPurchaseOrders } from '../mock/initData';
 
 interface AppState {
   medicines: Medicine[];
@@ -29,27 +34,40 @@ interface AppState {
   sales: Sale[];
   promotions: Promotion[];
   inventoryRecords: InventoryRecord[];
-  
+  batches: MedicineBatch[];
+  purchaseOrders: PurchaseOrder[];
+
   loadData: () => void;
-  
+
   addMedicine: (medicine: Omit<Medicine, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateMedicine: (id: string, data: Partial<Medicine>) => void;
   deleteMedicine: (id: string) => void;
-  
+
   addSupplier: (supplier: Omit<Supplier, 'id' | 'createdAt'>) => void;
   updateSupplier: (id: string, data: Partial<Supplier>) => void;
   deleteSupplier: (id: string) => void;
-  
+
   createSale: (items: SaleItem[], promotionId?: string, remark?: string) => Sale | null;
   validateStock: (items: SaleItem[]) => { valid: boolean; errors: string[] };
-  
+  refundSale: (saleId: string, remark?: string) => boolean;
+
   addInventory: (record: Omit<InventoryRecord, 'id'>) => void;
-  
+
+  addBatch: (batch: Omit<MedicineBatch, 'id'>) => void;
+  updateBatch: (id: string, data: Partial<MedicineBatch>) => void;
+  deleteBatch: (id: string) => void;
+  getBatchesByMedicine: (medicineId: string) => MedicineBatch[];
+  deductBatchStock: (medicineId: string, quantity: number) => BatchDeduction[];
+
   addPromotion: (promotion: Omit<Promotion, 'id'>) => void;
   updatePromotion: (id: string, data: Partial<Promotion>) => void;
   deletePromotion: (id: string) => void;
   togglePromotion: (id: string) => void;
-  
+
+  createPurchaseOrder: (items: Omit<PurchaseOrderItem, 'id'>[], supplierId: string, remark?: string) => PurchaseOrder;
+  updatePurchaseOrderStatus: (id: string, status: PurchaseOrderStatus) => void;
+  receivePurchaseOrder: (id: string) => void;
+
   getExpiryAlerts: (days?: number) => ExpiryAlert[];
   getStockAlerts: () => StockAlert[];
   getDailySales: (date?: string) => DailySales;
@@ -67,20 +85,24 @@ export const useStore = create<AppState>()(
       sales: [],
       promotions: [],
       inventoryRecords: [],
-      
+      batches: [],
+      purchaseOrders: [],
+
       loadData: () => {
-        const { medicines, suppliers, sales, promotions, inventoryRecords } = get();
+        const { medicines, suppliers, sales, promotions, inventoryRecords, batches, purchaseOrders } = get();
         if (medicines.length === 0) {
           set({
             medicines: mockMedicines,
             suppliers: mockSuppliers,
             sales: mockSales,
             promotions: mockPromotions,
-            inventoryRecords: mockInventoryRecords
+            inventoryRecords: mockInventoryRecords,
+            batches: mockBatches,
+            purchaseOrders: mockPurchaseOrders
           });
         }
       },
-      
+
       addMedicine: (medicine) => {
         const now = new Date().toISOString();
         const newMedicine: Medicine = {
@@ -93,7 +115,7 @@ export const useStore = create<AppState>()(
           medicines: [...state.medicines, newMedicine]
         }));
       },
-      
+
       updateMedicine: (id, data) => {
         set((state) => ({
           medicines: state.medicines.map((m) =>
@@ -101,13 +123,13 @@ export const useStore = create<AppState>()(
           )
         }));
       },
-      
+
       deleteMedicine: (id) => {
         set((state) => ({
           medicines: state.medicines.filter((m) => m.id !== id)
         }));
       },
-      
+
       addSupplier: (supplier) => {
         const newSupplier: Supplier = {
           ...supplier,
@@ -118,7 +140,7 @@ export const useStore = create<AppState>()(
           suppliers: [...state.suppliers, newSupplier]
         }));
       },
-      
+
       updateSupplier: (id, data) => {
         set((state) => ({
           suppliers: state.suppliers.map((s) =>
@@ -126,42 +148,118 @@ export const useStore = create<AppState>()(
           )
         }));
       },
-      
+
       deleteSupplier: (id) => {
         set((state) => ({
           suppliers: state.suppliers.filter((s) => s.id !== id)
         }));
       },
-      
+
+      getBatchesByMedicine: (medicineId) => {
+        return get().batches
+          .filter(b => b.medicineId === medicineId && b.quantity > 0)
+          .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+      },
+
+      deductBatchStock: (medicineId, quantity) => {
+        const { batches } = get();
+        const sorted = [...batches]
+          .filter(b => b.medicineId === medicineId && b.quantity > 0)
+          .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+
+        const deductions: BatchDeduction[] = [];
+        let remaining = quantity;
+
+        for (const batch of sorted) {
+          if (remaining <= 0) break;
+          const deduct = Math.min(batch.quantity, remaining);
+          deductions.push({
+            batchId: batch.id,
+            batchNumber: batch.batchNumber,
+            quantity: deduct,
+            unitCost: batch.unitCost
+          });
+          remaining -= deduct;
+        }
+
+        if (remaining > 0) return [];
+
+        set((state) => ({
+          batches: state.batches.map(b => {
+            const deduction = deductions.find(d => d.batchId === b.id);
+            if (deduction) {
+              return { ...b, quantity: b.quantity - deduction.quantity };
+            }
+            return b;
+          })
+        }));
+
+        return deductions;
+      },
+
+      addBatch: (batch) => {
+        const newBatch: MedicineBatch = {
+          ...batch,
+          id: 'batch-' + generateId()
+        };
+        set((state) => ({
+          batches: [...state.batches, newBatch]
+        }));
+      },
+
+      updateBatch: (id, data) => {
+        set((state) => ({
+          batches: state.batches.map((b) =>
+            b.id === id ? { ...b, ...data } : b
+          )
+        }));
+      },
+
+      deleteBatch: (id) => {
+        set((state) => ({
+          batches: state.batches.filter((b) => b.id !== id)
+        }));
+      },
+
       validateStock: (items) => {
-        const { medicines } = get();
+        const { batches } = get();
         const errors: string[] = [];
-        
+
         items.forEach((item) => {
-          const medicine = medicines.find((m) => m.id === item.medicineId);
-          if (!medicine) {
-            errors.push(`药品 ${item.medicineName} 不存在`);
-          } else if (medicine.stock < item.totalQuantity) {
+          const availableBatches = batches.filter(b => b.medicineId === item.medicineId && b.quantity > 0);
+          const totalAvailable = availableBatches.reduce((sum, b) => sum + b.quantity, 0);
+
+          if (availableBatches.length === 0) {
+            const medicine = get().medicines.find(m => m.id === item.medicineId);
+            errors.push(`药品 ${item.medicineName} 无可用批次`);
+          } else if (totalAvailable < item.totalQuantity) {
+            const medicine = get().medicines.find(m => m.id === item.medicineId);
             errors.push(
-              `${medicine.name} 库存不足，需要 ${item.totalQuantity} ${medicine.unit}，实际只有 ${medicine.stock} ${medicine.unit}`
+              `${item.medicineName} 库存不足，需要 ${item.totalQuantity}，各批次合计只有 ${totalAvailable}`
             );
           }
         });
-        
+
         return { valid: errors.length === 0, errors };
       },
-      
+
       createSale: (items, promotionId, remark = '') => {
-        const { medicines, updateMedicine, validateStock } = get();
-        
+        const { medicines, updateMedicine, validateStock, deductBatchStock } = get();
+
         const validation = validateStock(items);
         if (!validation.valid) {
           return null;
         }
-        
+
         const now = new Date().toISOString();
-        
-        items.forEach((item) => {
+
+        const enrichedItems: SaleItem[] = items.map(item => {
+          const deductions = deductBatchStock(item.medicineId, item.totalQuantity);
+          if (deductions.length === 0) return null;
+          return { ...item, batchDeductions: deductions };
+        }).filter(Boolean) as SaleItem[];
+
+        enrichedItems.forEach((item) => {
           const medicine = medicines.find((m) => m.id === item.medicineId);
           if (medicine) {
             updateMedicine(item.medicineId, {
@@ -169,10 +267,10 @@ export const useStore = create<AppState>()(
             });
           }
         });
-        
-        const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
-        const totalProfit = items.reduce((sum, item) => sum + item.profit, 0);
-        
+
+        const totalAmount = enrichedItems.reduce((sum, item) => sum + item.subtotal, 0);
+        const totalProfit = enrichedItems.reduce((sum, item) => sum + item.profit, 0);
+
         const newSale: Sale = {
           id: 'sale-' + generateId(),
           saleTime: now,
@@ -180,25 +278,61 @@ export const useStore = create<AppState>()(
           totalProfit,
           promotionId,
           remark,
-          items
+          items: enrichedItems,
+          status: 'completed'
         };
-        
+
         set((state) => ({
           sales: [newSale, ...state.sales]
         }));
-        
+
         return newSale;
       },
-      
+
+      refundSale: (saleId, remark = '') => {
+        const { sales, batches, medicines, updateMedicine, updateBatch } = get();
+        const sale = sales.find(s => s.id === saleId);
+
+        if (!sale || sale.status !== 'completed') return false;
+
+        sale.items.forEach(item => {
+          const medicine = medicines.find(m => m.id === item.medicineId);
+          if (medicine) {
+            updateMedicine(item.medicineId, {
+              stock: medicine.stock + item.totalQuantity
+            });
+          }
+
+          item.batchDeductions.forEach(deduction => {
+            const batch = batches.find(b => b.id === deduction.batchId);
+            if (batch) {
+              updateBatch(deduction.batchId, {
+                quantity: batch.quantity + deduction.quantity
+              });
+            }
+          });
+        });
+
+        set((state) => ({
+          sales: state.sales.map(s =>
+            s.id === saleId
+              ? { ...s, status: 'refunded', refundTime: new Date().toISOString(), refundRemark: remark }
+              : s
+          )
+        }));
+
+        return true;
+      },
+
       addInventory: (record) => {
-        const { updateMedicine, medicines } = get();
+        const { updateMedicine, medicines, addBatch } = get();
         const medicine = medicines.find((m) => m.id === record.medicineId);
-        
+
         const newRecord: InventoryRecord = {
           ...record,
           id: 'inv-' + generateId()
         };
-        
+
         if (medicine) {
           updateMedicine(record.medicineId, {
             stock: medicine.stock + record.quantity,
@@ -206,16 +340,27 @@ export const useStore = create<AppState>()(
             expiryDate: record.expiryDate
           });
         }
-        
+
+        addBatch({
+          medicineId: record.medicineId,
+          batchNumber: record.batchNumber,
+          productionDate: record.productionDate,
+          expiryDate: record.expiryDate,
+          quantity: record.quantity,
+          unitCost: record.unitCost,
+          inboundDate: new Date().toISOString(),
+          supplierId: medicine?.supplierId || ''
+        });
+
         set((state) => ({
           inventoryRecords: [newRecord, ...state.inventoryRecords]
         }));
       },
-      
+
       addPromotion: (promotion) => {
         const { medicines } = get();
         const medicine = medicines.find((m) => m.id === promotion.medicineId);
-        
+
         const newPromotion: Promotion = {
           ...promotion,
           id: 'promo-' + generateId(),
@@ -225,7 +370,7 @@ export const useStore = create<AppState>()(
           promotions: [...state.promotions, newPromotion]
         }));
       },
-      
+
       updatePromotion: (id, data) => {
         const { medicines } = get();
         set((state) => ({
@@ -238,7 +383,7 @@ export const useStore = create<AppState>()(
           })
         }));
       },
-      
+
       togglePromotion: (id) => {
         set((state) => ({
           promotions: state.promotions.map((p) =>
@@ -246,65 +391,187 @@ export const useStore = create<AppState>()(
           )
         }));
       },
-      
+
       deletePromotion: (id) => {
         set((state) => ({
           promotions: state.promotions.filter((p) => p.id !== id)
         }));
       },
-      
-      getExpiryAlerts: (days = 30) => {
-        const { medicines } = get();
-        return medicines
-          .map((medicine) => {
-            const daysRemaining = daysToExpiry(medicine.expiryDate);
-            return {
-              medicine,
-              daysRemaining,
-              level: getExpiryAlertLevel(daysRemaining)
-            };
-          })
-          .filter((alert) => alert.daysRemaining <= days)
-          .sort((a, b) => a.daysRemaining - b.daysRemaining);
+
+      createPurchaseOrder: (items, supplierId, remark = '') => {
+        const { suppliers } = get();
+        const supplier = suppliers.find(s => s.id === supplierId);
+        const now = new Date().toISOString();
+
+        const poItems: PurchaseOrderItem[] = items.map(item => ({
+          ...item,
+          id: 'poi-' + generateId(),
+          totalCost: item.quantity * item.unitCost
+        }));
+
+        const totalAmount = poItems.reduce((sum, item) => sum + item.totalCost, 0);
+
+        const newOrder: PurchaseOrder = {
+          id: 'po-' + generateId(),
+          supplierId,
+          supplierName: supplier?.name || '',
+          items: poItems,
+          totalAmount,
+          status: 'pending',
+          createdAt: now,
+          remark
+        };
+
+        set((state) => ({
+          purchaseOrders: [newOrder, ...state.purchaseOrders]
+        }));
+
+        return newOrder;
       },
-      
+
+      updatePurchaseOrderStatus: (id, status) => {
+        set((state) => ({
+          purchaseOrders: state.purchaseOrders.map(po =>
+            po.id === id ? { ...po, status } : po
+          )
+        }));
+      },
+
+      receivePurchaseOrder: (id) => {
+        const { purchaseOrders, addBatch, updateMedicine, medicines, addInventory } = get();
+        const order = purchaseOrders.find(po => po.id === id);
+        if (!order || order.status !== 'ordered') return;
+
+        const now = new Date().toISOString();
+
+        order.items.forEach(item => {
+          const medicine = medicines.find(m => m.id === item.medicineId);
+          if (medicine) {
+            updateMedicine(item.medicineId, {
+              stock: medicine.stock + item.quantity
+            });
+          }
+
+          addBatch({
+            medicineId: item.medicineId,
+            batchNumber: item.batchNumber,
+            productionDate: item.productionDate,
+            expiryDate: item.expiryDate,
+            quantity: item.quantity,
+            unitCost: item.unitCost,
+            inboundDate: now,
+            supplierId: order.supplierId,
+            purchaseOrderId: order.id
+          });
+
+          addInventory({
+            medicineId: item.medicineId,
+            medicineName: item.medicineName,
+            quantity: item.quantity,
+            unitCost: item.unitCost,
+            productionDate: item.productionDate,
+            expiryDate: item.expiryDate,
+            batchNumber: item.batchNumber,
+            inboundDate: now
+          });
+        });
+
+        set((state) => ({
+          purchaseOrders: state.purchaseOrders.map(po =>
+            po.id === id ? { ...po, status: 'received', receivedAt: now } : po
+          )
+        }));
+      },
+
+      getExpiryAlerts: (days = 30) => {
+        const { medicines, batches } = get();
+        const alerts: ExpiryAlert[] = [];
+
+        batches.forEach(batch => {
+          if (batch.quantity <= 0) return;
+          const daysRemaining = daysToExpiry(batch.expiryDate);
+          if (daysRemaining <= days) {
+            const medicine = medicines.find(m => m.id === batch.medicineId);
+            if (medicine) {
+              alerts.push({
+                medicine,
+                daysRemaining,
+                level: getExpiryAlertLevel(daysRemaining),
+                batch
+              });
+            }
+          }
+        });
+
+        return alerts.sort((a, b) => a.daysRemaining - b.daysRemaining);
+      },
+
       getStockAlerts: () => {
-        const { medicines } = get();
-        return medicines
-          .filter((m) => m.safetyStock > 0)
-          .map((medicine) => {
-            const stockPercentage = (medicine.stock / medicine.safetyStock) * 100;
-            return {
+        const { medicines, batches } = get();
+        const alerts: StockAlert[] = [];
+
+        medicines.forEach(medicine => {
+          if (medicine.safetyStock <= 0) return;
+          const batchTotal = batches
+            .filter(b => b.medicineId === medicine.id && b.quantity > 0)
+            .reduce((sum, b) => sum + b.quantity, 0);
+          const stockPercentage = (batchTotal / medicine.safetyStock) * 100;
+          if (stockPercentage <= 100) {
+            alerts.push({
               medicine,
               stockPercentage,
               level: getStockAlertLevel(stockPercentage)
-            };
-          })
-          .filter((alert) => alert.stockPercentage <= 100)
-          .sort((a, b) => a.stockPercentage - b.stockPercentage);
+            });
+          }
+        });
+
+        return alerts.sort((a, b) => a.stockPercentage - b.stockPercentage);
       },
-      
+
       getDailySales: (date) => {
         const { sales } = get();
-        return calcDailySales(sales, date || getTodayString());
+        const validSales = sales.filter(s => s.status === 'completed');
+        return calcDailySales(validSales, date || getTodayString());
       },
-      
+
       getTopSellers: (period, limit = 10) => {
         const { sales, medicines } = get();
-        return calcTopSellers(sales, medicines, period, limit);
+        const validSales = sales.filter(s => s.status === 'completed');
+        return calcTopSellers(validSales, medicines, period, limit);
       },
-      
+
       getPromotionEffect: (promotionId) => {
         const { sales, promotions } = get();
+        const validSales = sales.filter(s => s.status === 'completed');
         const promotion = promotions.find((p) => p.id === promotionId);
         if (!promotion) {
           return { normalSales: 0, promotionSales: 0, increaseRate: 0 };
         }
-        return calculatePromotionEffect(sales, promotion);
+        return calculatePromotionEffect(validSales, promotion);
       }
     }),
     {
-      name: 'pharmacy-storage'
+      name: 'pharmacy-storage',
+      version: 2,
+      migrate: (persistedState: any) => {
+        if (persistedState && !persistedState.batches) {
+          persistedState.batches = [];
+        }
+        if (persistedState && !persistedState.purchaseOrders) {
+          persistedState.purchaseOrders = [];
+        }
+        if (persistedState && persistedState.sales) {
+          persistedState.sales = persistedState.sales.map((s: any) => ({
+            ...s,
+            status: s.status || 'completed',
+            items: (s.items || []).map((item: any) => ({
+              ...item,
+              batchDeductions: item.batchDeductions || []
+            }))
+          }));
+        }
+        return persistedState;
+      }
     }
   )
 );

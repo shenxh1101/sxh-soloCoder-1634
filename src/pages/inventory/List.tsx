@@ -5,13 +5,13 @@ import { useStore } from '../../store/useStore';
 import DataTable, { Column } from '../../components/DataTable';
 import SearchInput from '../../components/SearchInput';
 import Modal from '../../components/Modal';
-import { InventoryRecord, Medicine, CATEGORY_LABELS } from '../../types';
+import { InventoryRecord, Medicine, MedicineBatch, CATEGORY_LABELS } from '../../types';
 import { formatDate, daysToExpiry, getExpiryAlertLevel, getStockAlertLevel } from '../../utils/date';
 import { cn } from '../../lib/utils';
 
 export default function InventoryList() {
   const navigate = useNavigate();
-  const { medicines, inventoryRecords, addInventory } = useStore();
+  const { medicines, inventoryRecords, batches, addInventory } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [showInboundModal, setShowInboundModal] = useState(false);
   const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null);
@@ -193,6 +193,62 @@ export default function InventoryList() {
     }
   ];
 
+  const batchColumns: Column<MedicineBatch>[] = [
+    {
+      key: 'medicineId',
+      header: '药品名称',
+      render: (value) => {
+        const medicine = medicines.find(m => m.id === value);
+        return <span className="font-medium">{medicine?.name || '-'}</span>;
+      }
+    },
+    {
+      key: 'batchNumber',
+      header: '批号',
+      render: (value) => <span className="font-mono text-sm">{value}</span>
+    },
+    {
+      key: 'productionDate',
+      header: '生产日期',
+      render: (value) => formatDate(value as string)
+    },
+    {
+      key: 'expiryDate',
+      header: '有效期至',
+      render: (value) => {
+        const days = daysToExpiry(value as string);
+        const level = getExpiryAlertLevel(days);
+        return (
+          <div>
+            <p className="font-medium">{formatDate(value as string)}</p>
+            <span className={cn(
+              'text-xs font-medium',
+              level === 'critical' ? 'text-red-600' :
+              level === 'warning' ? 'text-orange-600' : 'text-green-600'
+            )}>
+              {days > 0 ? `还剩 ${days} 天` : `已过期 ${Math.abs(days)} 天`}
+            </span>
+          </div>
+        );
+      }
+    },
+    {
+      key: 'quantity',
+      header: '库存数量',
+      render: (value) => <span className="font-medium">{value}</span>
+    },
+    {
+      key: 'unitCost',
+      header: '单位成本',
+      render: (value) => <span>¥{Number(value).toFixed(2)}</span>
+    },
+    {
+      key: 'inboundDate',
+      header: '入库日期',
+      render: (value) => formatDate(value as string)
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -215,6 +271,15 @@ export default function InventoryList() {
           columns={inventoryColumns}
           data={medicines}
           emptyMessage="暂无药品数据"
+        />
+      </div>
+
+      <div className="bg-white rounded-xl p-6 border border-slate-200">
+        <h2 className="text-lg font-semibold text-slate-900 mb-4">批次明细</h2>
+        <DataTable
+          columns={batchColumns}
+          data={batches}
+          emptyMessage="暂无批次数据"
         />
       </div>
 

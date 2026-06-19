@@ -1,4 +1,4 @@
-import { Medicine, Supplier, Sale, Promotion, InventoryRecord } from '../types';
+import { Medicine, Supplier, Sale, Promotion, InventoryRecord, MedicineBatch, PurchaseOrder } from '../types';
 import { addDays, getTodayString } from '../utils/date';
 
 export const mockSuppliers: Supplier[] = [
@@ -230,6 +230,158 @@ export const mockInventoryRecords: InventoryRecord[] = [
   }
 ];
 
+export const mockBatches: MedicineBatch[] = [
+  {
+    id: 'batch-1',
+    medicineId: 'med-1',
+    batchNumber: 'B20240401',
+    productionDate: addDays(getTodayString(), -60),
+    expiryDate: addDays(getTodayString(), 25),
+    quantity: 34,
+    unitCost: 8.5,
+    inboundDate: addDays(getTodayString(), -58),
+    supplierId: 'sup-1'
+  },
+  {
+    id: 'batch-1b',
+    medicineId: 'med-1',
+    batchNumber: 'B20240515',
+    productionDate: addDays(getTodayString(), -30),
+    expiryDate: addDays(getTodayString(), 335),
+    quantity: 11,
+    unitCost: 8.5,
+    inboundDate: addDays(getTodayString(), -28),
+    supplierId: 'sup-1'
+  },
+  {
+    id: 'batch-2',
+    medicineId: 'med-2',
+    batchNumber: 'B20231201',
+    productionDate: addDays(getTodayString(), -180),
+    expiryDate: addDays(getTodayString(), 10),
+    quantity: 8,
+    unitCost: 5.0,
+    inboundDate: addDays(getTodayString(), -178),
+    supplierId: 'sup-1'
+  },
+  {
+    id: 'batch-3',
+    medicineId: 'med-3',
+    batchNumber: 'B20240301',
+    productionDate: addDays(getTodayString(), -90),
+    expiryDate: addDays(getTodayString(), 270),
+    quantity: 59,
+    unitCost: 12.0,
+    inboundDate: addDays(getTodayString(), -88),
+    supplierId: 'sup-2'
+  },
+  {
+    id: 'batch-4',
+    medicineId: 'med-4',
+    batchNumber: 'B20240215',
+    productionDate: addDays(getTodayString(), -120),
+    expiryDate: addDays(getTodayString(), 240),
+    quantity: 25,
+    unitCost: 18.0,
+    inboundDate: addDays(getTodayString(), -118),
+    supplierId: 'sup-2'
+  },
+  {
+    id: 'batch-5',
+    medicineId: 'med-5',
+    batchNumber: 'B20240228',
+    productionDate: addDays(getTodayString(), -100),
+    expiryDate: addDays(getTodayString(), 265),
+    quantity: 38,
+    unitCost: 10.0,
+    inboundDate: addDays(getTodayString(), -98),
+    supplierId: 'sup-1'
+  },
+  {
+    id: 'batch-6',
+    medicineId: 'med-6',
+    batchNumber: 'B20240310',
+    productionDate: addDays(getTodayString(), -75),
+    expiryDate: addDays(getTodayString(), 290),
+    quantity: 5,
+    unitCost: 15.0,
+    inboundDate: addDays(getTodayString(), -73),
+    supplierId: 'sup-3'
+  },
+  {
+    id: 'batch-7',
+    medicineId: 'med-7',
+    batchNumber: 'B20240101',
+    productionDate: addDays(getTodayString(), -200),
+    expiryDate: addDays(getTodayString(), 165),
+    quantity: 30,
+    unitCost: 45.0,
+    inboundDate: addDays(getTodayString(), -198),
+    supplierId: 'sup-2'
+  },
+  {
+    id: 'batch-8',
+    medicineId: 'med-8',
+    batchNumber: 'B20240120',
+    productionDate: addDays(getTodayString(), -150),
+    expiryDate: addDays(getTodayString(), 215),
+    quantity: 17,
+    unitCost: 55.0,
+    inboundDate: addDays(getTodayString(), -148),
+    supplierId: 'sup-3'
+  },
+  {
+    id: 'batch-9',
+    medicineId: 'med-9',
+    batchNumber: 'B20240610',
+    productionDate: addDays(getTodayString(), -5),
+    expiryDate: addDays(getTodayString(), 360),
+    quantity: 50,
+    unitCost: 7.5,
+    inboundDate: addDays(getTodayString(), -3),
+    supplierId: 'sup-1'
+  },
+  {
+    id: 'batch-10',
+    medicineId: 'med-10',
+    batchNumber: 'B20240520',
+    productionDate: addDays(getTodayString(), -30),
+    expiryDate: addDays(getTodayString(), 335),
+    quantity: 35,
+    unitCost: 6.0,
+    inboundDate: addDays(getTodayString(), -28),
+    supplierId: 'sup-3'
+  }
+];
+
+export const mockPurchaseOrders: PurchaseOrder[] = [
+  {
+    id: 'po-1',
+    supplierId: 'sup-1',
+    supplierName: '安康医药有限公司',
+    items: [
+      {
+        id: 'poi-1',
+        medicineId: 'med-1',
+        medicineName: '999感冒灵颗粒',
+        specification: '10g*15袋',
+        quantity: 30,
+        unitCost: 8.5,
+        totalCost: 255,
+        batchNumber: 'B20240515',
+        productionDate: addDays(getTodayString(), -30),
+        expiryDate: addDays(getTodayString(), 335)
+      }
+    ],
+    totalAmount: 255,
+    status: 'received',
+    createdAt: addDays(getTodayString(), -28) + 'T09:00:00.000Z',
+    orderedAt: addDays(getTodayString(), -27) + 'T10:00:00.000Z',
+    receivedAt: addDays(getTodayString(), -25) + 'T14:00:00.000Z',
+    remark: '常规补货'
+  }
+];
+
 export const mockPromotions: Promotion[] = [
   {
     id: 'promo-1',
@@ -266,6 +418,7 @@ export const mockSales: Sale[] = [
     totalAmount: 45.0,
     totalProfit: 19.5,
     remark: '',
+    status: 'completed',
     items: [
       {
         id: 'item-1',
@@ -279,7 +432,8 @@ export const mockSales: Sale[] = [
         discountAmount: 0,
         subtotal: 45.0,
         costAmount: 25.5,
-        profit: 19.5
+        profit: 19.5,
+        batchDeductions: [{ batchId: 'batch-1', batchNumber: 'B20240401', quantity: 3, unitCost: 8.5 }]
       }
     ]
   },
@@ -287,9 +441,10 @@ export const mockSales: Sale[] = [
     id: 'sale-2',
     saleTime: addDays(getTodayString(), -5) + 'T14:20:00.000Z',
     totalAmount: 112.15,
-    totalProfit: 36.65,
+    totalProfit: 33.15,
     promotionId: 'promo-1',
     remark: '促销活动',
+    status: 'completed',
     items: [
       {
         id: 'item-2',
@@ -303,7 +458,8 @@ export const mockSales: Sale[] = [
         discountAmount: 15.0,
         subtotal: 45.0,
         costAmount: 34.0,
-        profit: 11.0
+        profit: 11.0,
+        batchDeductions: [{ batchId: 'batch-1', batchNumber: 'B20240401', quantity: 4, unitCost: 8.5 }]
       },
       {
         id: 'item-3',
@@ -317,7 +473,8 @@ export const mockSales: Sale[] = [
         discountAmount: 11.85,
         subtotal: 67.15,
         costAmount: 45.0,
-        profit: 22.15
+        profit: 22.15,
+        batchDeductions: [{ batchId: 'batch-7', batchNumber: 'B20240101', quantity: 1, unitCost: 45.0 }]
       }
     ]
   },
@@ -327,6 +484,7 @@ export const mockSales: Sale[] = [
     totalAmount: 22.0,
     totalProfit: 10.0,
     remark: '',
+    status: 'completed',
     items: [
       {
         id: 'item-4',
@@ -340,7 +498,8 @@ export const mockSales: Sale[] = [
         discountAmount: 0,
         subtotal: 22.0,
         costAmount: 12.0,
-        profit: 10.0
+        profit: 10.0,
+        batchDeductions: [{ batchId: 'batch-3', batchNumber: 'B20240301', quantity: 1, unitCost: 12.0 }]
       }
     ]
   },
@@ -351,6 +510,7 @@ export const mockSales: Sale[] = [
     totalProfit: 22.0,
     promotionId: 'promo-1',
     remark: '',
+    status: 'completed',
     items: [
       {
         id: 'item-5',
@@ -364,7 +524,8 @@ export const mockSales: Sale[] = [
         discountAmount: 30.0,
         subtotal: 90.0,
         costAmount: 68.0,
-        profit: 22.0
+        profit: 22.0,
+        batchDeductions: [{ batchId: 'batch-1', batchNumber: 'B20240401', quantity: 8, unitCost: 8.5 }]
       }
     ]
   },
@@ -374,6 +535,7 @@ export const mockSales: Sale[] = [
     totalAmount: 50.0,
     totalProfit: 22.5,
     remark: '',
+    status: 'completed',
     items: [
       {
         id: 'item-6',
@@ -387,7 +549,8 @@ export const mockSales: Sale[] = [
         discountAmount: 0,
         subtotal: 36.0,
         costAmount: 20.0,
-        profit: 16.0
+        profit: 16.0,
+        batchDeductions: [{ batchId: 'batch-5', batchNumber: 'B20240228', quantity: 2, unitCost: 10.0 }]
       },
       {
         id: 'item-7',
@@ -401,7 +564,8 @@ export const mockSales: Sale[] = [
         discountAmount: 0,
         subtotal: 14.0,
         costAmount: 7.5,
-        profit: 6.5
+        profit: 6.5,
+        batchDeductions: [{ batchId: 'batch-9', batchNumber: 'B20240610', quantity: 1, unitCost: 7.5 }]
       }
     ]
   },
@@ -411,6 +575,7 @@ export const mockSales: Sale[] = [
     totalAmount: 98.0,
     totalProfit: 43.0,
     remark: '',
+    status: 'completed',
     items: [
       {
         id: 'item-8',
@@ -424,7 +589,8 @@ export const mockSales: Sale[] = [
         discountAmount: 0,
         subtotal: 98.0,
         costAmount: 55.0,
-        profit: 43.0
+        profit: 43.0,
+        batchDeductions: [{ batchId: 'batch-8', batchNumber: 'B20240120', quantity: 1, unitCost: 55.0 }]
       }
     ]
   }

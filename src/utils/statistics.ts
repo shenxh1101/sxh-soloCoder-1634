@@ -7,7 +7,7 @@ export function aggregateSalesByPeriod(
 ): Array<{ period: string; amount: number; profit: number }> {
   const map = new Map<string, { amount: number; profit: number }>();
   
-  sales.forEach(sale => {
+  sales.filter(s => s.status === 'completed').forEach(sale => {
     const date = new Date(sale.saleTime);
     let key: string;
     
@@ -83,7 +83,7 @@ export function getTopSellers(
   
   const medicineStats = new Map<string, { quantity: number; amount: number; profit: number }>();
   
-  sales.forEach(sale => {
+  sales.filter(s => s.status === 'completed').forEach(sale => {
     if (sale.saleTime >= startDate) {
       sale.items.forEach(item => {
         const existing = medicineStats.get(item.medicineId) || { quantity: 0, amount: 0, profit: 0 };
@@ -110,7 +110,7 @@ export function getDailySales(
   sales: Sale[],
   date: string
 ): { amount: number; count: number; profit: number } {
-  const daySales = sales.filter(s => s.saleTime.startsWith(date));
+  const daySales = sales.filter(s => s.status === 'completed' && s.saleTime.startsWith(date));
   return {
     amount: daySales.reduce((sum, s) => sum + s.totalAmount, 0),
     count: daySales.length,

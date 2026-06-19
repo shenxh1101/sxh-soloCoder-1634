@@ -13,6 +13,7 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   emptyMessage?: string;
   className?: string;
+  rowClassName?: (row: T) => string;
 }
 
 export default function DataTable<T>({
@@ -20,7 +21,8 @@ export default function DataTable<T>({
   data,
   onRowClick,
   emptyMessage = '暂无数据',
-  className
+  className,
+  rowClassName
 }: DataTableProps<T>) {
   if (data.length === 0) {
     return (
@@ -62,7 +64,8 @@ export default function DataTable<T>({
                 onClick={() => onRowClick?.(row)}
                 className={cn(
                   'transition-colors',
-                  onRowClick && 'cursor-pointer hover:bg-slate-50'
+                  onRowClick && 'cursor-pointer hover:bg-slate-50',
+                  rowClassName?.(row)
                 )}
               >
                 {columns.map((col, colIdx) => {

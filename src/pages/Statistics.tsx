@@ -29,18 +29,20 @@ export default function Statistics() {
   const [period, setPeriod] = useState<Period>('week');
   const [activeTab, setActiveTab] = useState<TabType>('sales');
 
-  const salesData = aggregateSalesByPeriod(sales, period);
+  const completedSales = sales.filter(s => s.status === 'completed');
+
+  const salesData = aggregateSalesByPeriod(completedSales, period);
   const topSellers = getTopSellers('month', 10);
   const topProfit = [...topSellers].sort((a, b) => b.profit - a.profit);
 
   const categorySales = medicines.reduce((acc, med) => {
-    const categorySales = sales.reduce((sum, sale) => {
+    const medSales = completedSales.reduce((sum, sale) => {
       return sum + sale.items
         .filter(item => item.medicineId === med.id)
         .reduce((itemSum, item) => itemSum + item.subtotal, 0);
     }, 0);
-    if (categorySales > 0) {
-      acc[med.category] = (acc[med.category] || 0) + categorySales;
+    if (medSales > 0) {
+      acc[med.category] = (acc[med.category] || 0) + medSales;
     }
     return acc;
   }, {} as Record<string, number>);
@@ -52,9 +54,9 @@ export default function Statistics() {
 
   const COLORS = ['#165DFF', '#00B42A', '#FF7D00', '#F53F3F', '#722ED1'];
 
-  const totalSales = sales.reduce((sum, s) => sum + s.totalAmount, 0);
-  const totalProfit = sales.reduce((sum, s) => sum + s.totalProfit, 0);
-  const totalTransactions = sales.length;
+  const totalSales = completedSales.reduce((sum, s) => sum + s.items.reduce((itemSum, item) => itemSum + item.subtotal, 0), 0);
+  const totalProfit = completedSales.reduce((sum, s) => sum + s.items.reduce((itemSum, item) => itemSum + item.profit, 0), 0);
+  const totalTransactions = completedSales.length;
   const avgOrderValue = totalTransactions > 0 ? totalSales / totalTransactions : 0;
 
   const tabs = [

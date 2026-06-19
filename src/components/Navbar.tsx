@@ -7,7 +7,8 @@ import {
   Tag,
   Users,
   BarChart3,
-  Truck
+  Truck,
+  ClipboardList
 } from 'lucide-react';
 
 const navItems = [
@@ -18,6 +19,7 @@ const navItems = [
   { to: '/promotions', icon: Tag, label: '促销活动' },
   { to: '/suppliers', icon: Users, label: '供应商' },
   { to: '/restock', icon: Truck, label: '进货建议' },
+  { to: '/purchase-orders', icon: ClipboardList, label: '采购管理' },
   { to: '/statistics', icon: BarChart3, label: '统计分析' }
 ];
 

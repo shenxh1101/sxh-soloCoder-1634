@@ -10,6 +10,7 @@ import PromotionList from "./pages/promotions/List";
 import SupplierList from "./pages/suppliers/List";
 import Statistics from "./pages/Statistics";
 import RestockSuggestion from "./pages/restock/Suggestion";
+import PurchaseOrderList from "./pages/purchase/OrderList";
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
             <Route path="/suppliers" element={<SupplierList />} />
             <Route path="/statistics" element={<Statistics />} />
             <Route path="/restock" element={<RestockSuggestion />} />
+            <Route path="/purchase-orders" element={<PurchaseOrderList />} />
           </Routes>
         </main>
       </div>

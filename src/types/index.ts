@@ -4,6 +4,8 @@ export type PromotionType = 'buy_n_get_m' | 'discount';
 
 export type AlertLevel = 'critical' | 'warning' | 'normal';
 
+export type PurchaseOrderStatus = 'pending' | 'ordered' | 'received' | 'cancelled';
+
 export interface Medicine {
   id: string;
   name: string;
@@ -19,6 +21,19 @@ export interface Medicine {
   unit: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface MedicineBatch {
+  id: string;
+  medicineId: string;
+  batchNumber: string;
+  productionDate: string;
+  expiryDate: string;
+  quantity: number;
+  unitCost: number;
+  inboundDate: string;
+  supplierId: string;
+  purchaseOrderId?: string;
 }
 
 export interface Supplier {
@@ -56,6 +71,14 @@ export interface SaleItem {
   subtotal: number;
   costAmount: number;
   profit: number;
+  batchDeductions: BatchDeduction[];
+}
+
+export interface BatchDeduction {
+  batchId: string;
+  batchNumber: string;
+  quantity: number;
+  unitCost: number;
 }
 
 export interface Sale {
@@ -66,6 +89,9 @@ export interface Sale {
   promotionId?: string;
   remark: string;
   items: SaleItem[];
+  status: 'completed' | 'refunded';
+  refundTime?: string;
+  refundRemark?: string;
 }
 
 export interface Promotion {
@@ -82,16 +108,44 @@ export interface Promotion {
   isActive: boolean;
 }
 
+export interface PurchaseOrderItem {
+  id: string;
+  medicineId: string;
+  medicineName: string;
+  specification: string;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
+  batchNumber: string;
+  productionDate: string;
+  expiryDate: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  items: PurchaseOrderItem[];
+  totalAmount: number;
+  status: PurchaseOrderStatus;
+  createdAt: string;
+  orderedAt?: string;
+  receivedAt?: string;
+  remark: string;
+}
+
 export interface ExpiryAlert {
   medicine: Medicine;
   daysRemaining: number;
   level: AlertLevel;
+  batch?: MedicineBatch;
 }
 
 export interface StockAlert {
   medicine: Medicine;
   stockPercentage: number;
   level: AlertLevel;
+  batch?: MedicineBatch;
 }
 
 export interface TopSeller {
@@ -124,4 +178,11 @@ export const CATEGORY_LABELS: Record<MedicineCategory, string> = {
 export const PROMOTION_TYPE_LABELS: Record<PromotionType, string> = {
   buy_n_get_m: '买N送M',
   discount: '折扣'
+};
+
+export const PURCHASE_ORDER_STATUS_LABELS: Record<PurchaseOrderStatus, string> = {
+  pending: '待下单',
+  ordered: '已下单',
+  received: '已入库',
+  cancelled: '已取消'
 };
