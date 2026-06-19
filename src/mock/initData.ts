@@ -271,9 +271,14 @@ export const mockSales: Sale[] = [
         id: 'item-1',
         medicineId: 'med-1',
         medicineName: '999感冒灵颗粒',
-        quantity: 3,
+        payQuantity: 3,
+        freeQuantity: 0,
+        totalQuantity: 3,
         unitPrice: 15.0,
+        originalAmount: 45.0,
+        discountAmount: 0,
         subtotal: 45.0,
+        costAmount: 25.5,
         profit: 19.5
       }
     ]
@@ -281,8 +286,8 @@ export const mockSales: Sale[] = [
   {
     id: 'sale-2',
     saleTime: addDays(getTodayString(), -5) + 'T14:20:00.000Z',
-    totalAmount: 83.6,
-    totalProfit: 39.6,
+    totalAmount: 112.15,
+    totalProfit: 36.65,
     promotionId: 'promo-1',
     remark: '促销活动',
     items: [
@@ -290,19 +295,28 @@ export const mockSales: Sale[] = [
         id: 'item-2',
         medicineId: 'med-1',
         medicineName: '999感冒灵颗粒',
-        quantity: 3,
+        payQuantity: 3,
+        freeQuantity: 1,
+        totalQuantity: 4,
         unitPrice: 15.0,
+        originalAmount: 60.0,
+        discountAmount: 15.0,
         subtotal: 45.0,
-        profit: 19.5,
-        freeQuantity: 1
+        costAmount: 34.0,
+        profit: 11.0
       },
       {
         id: 'item-3',
         medicineId: 'med-7',
         medicineName: '汤臣倍健维生素C片',
-        quantity: 1,
+        payQuantity: 1,
+        freeQuantity: 0,
+        totalQuantity: 1,
         unitPrice: 79.0,
+        originalAmount: 79.0,
+        discountAmount: 11.85,
         subtotal: 67.15,
+        costAmount: 45.0,
         profit: 22.15
       }
     ]
@@ -318,9 +332,14 @@ export const mockSales: Sale[] = [
         id: 'item-4',
         medicineId: 'med-3',
         medicineName: '硝苯地平缓释片',
-        quantity: 1,
+        payQuantity: 1,
+        freeQuantity: 0,
+        totalQuantity: 1,
         unitPrice: 22.0,
+        originalAmount: 22.0,
+        discountAmount: 0,
         subtotal: 22.0,
+        costAmount: 12.0,
         profit: 10.0
       }
     ]
@@ -328,8 +347,8 @@ export const mockSales: Sale[] = [
   {
     id: 'sale-4',
     saleTime: addDays(getTodayString(), -2) + 'T16:45:00.000Z',
-    totalAmount: 63.6,
-    totalProfit: 31.5,
+    totalAmount: 90.0,
+    totalProfit: 22.0,
     promotionId: 'promo-1',
     remark: '',
     items: [
@@ -337,37 +356,51 @@ export const mockSales: Sale[] = [
         id: 'item-5',
         medicineId: 'med-1',
         medicineName: '999感冒灵颗粒',
-        quantity: 6,
+        payQuantity: 6,
+        freeQuantity: 2,
+        totalQuantity: 8,
         unitPrice: 15.0,
+        originalAmount: 120.0,
+        discountAmount: 30.0,
         subtotal: 90.0,
-        profit: 39.0,
-        freeQuantity: 2
+        costAmount: 68.0,
+        profit: 22.0
       }
     ]
   },
   {
     id: 'sale-5',
     saleTime: addDays(getTodayString(), -1) + 'T11:00:00.000Z',
-    totalAmount: 46.0,
-    totalProfit: 23.0,
+    totalAmount: 50.0,
+    totalProfit: 22.5,
     remark: '',
     items: [
       {
         id: 'item-6',
         medicineId: 'med-5',
         medicineName: '阿莫西林胶囊',
-        quantity: 2,
+        payQuantity: 2,
+        freeQuantity: 0,
+        totalQuantity: 2,
         unitPrice: 18.0,
+        originalAmount: 36.0,
+        discountAmount: 0,
         subtotal: 36.0,
+        costAmount: 20.0,
         profit: 16.0
       },
       {
         id: 'item-7',
         medicineId: 'med-9',
         medicineName: '布洛芬缓释胶囊',
-        quantity: 1,
+        payQuantity: 1,
+        freeQuantity: 0,
+        totalQuantity: 1,
         unitPrice: 14.0,
+        originalAmount: 14.0,
+        discountAmount: 0,
         subtotal: 14.0,
+        costAmount: 7.5,
         profit: 6.5
       }
     ]
@@ -383,9 +416,14 @@ export const mockSales: Sale[] = [
         id: 'item-8',
         medicineId: 'med-8',
         medicineName: '善存多维元素片',
-        quantity: 1,
+        payQuantity: 1,
+        freeQuantity: 0,
+        totalQuantity: 1,
         unitPrice: 98.0,
+        originalAmount: 98.0,
+        discountAmount: 0,
         subtotal: 98.0,
+        costAmount: 55.0,
         profit: 43.0
       }
     ]

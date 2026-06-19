@@ -41,9 +41,9 @@ export default function SaleList() {
       render: (_, row) => (
         <div className="max-w-xs">
           <p className="font-medium truncate">
-            {row.items.map(i => `${i.medicineName} ×${i.quantity}${i.freeQuantity ? `(赠${i.freeQuantity})` : ''}`).join(', ')}
+            {row.items.map(i => `${i.medicineName} ×${i.payQuantity}${i.freeQuantity > 0 ? `(赠${i.freeQuantity})` : ''}`).join(', ')}
           </p>
-          <p className="text-xs text-slate-500">共 {row.items.length} 种药品</p>
+          <p className="text-xs text-slate-500">共 {row.items.length} 种药品，合计 {row.items.reduce((sum, i) => sum + i.totalQuantity, 0)} 件</p>
         </div>
       )
     },
@@ -203,13 +203,23 @@ export default function SaleList() {
                       <tr key={idx} className="border-b border-slate-100 last:border-0">
                         <td className="py-3 px-4">
                           <p className="font-medium">{item.medicineName}</p>
-                          {item.freeQuantity && item.freeQuantity > 0 && (
-                            <p className="text-xs text-orange-600">赠送 {item.freeQuantity}</p>
+                          {item.freeQuantity > 0 && (
+                            <p className="text-xs text-orange-600">含赠送 {item.freeQuantity} 件</p>
                           )}
                         </td>
-                        <td className="py-3 px-4 text-right">{item.quantity}</td>
+                        <td className="py-3 px-4 text-right">
+                          {item.payQuantity}
+                          {item.freeQuantity > 0 && (
+                            <span className="text-orange-600"> + {item.freeQuantity}</span>
+                          )}
+                        </td>
                         <td className="py-3 px-4 text-right">¥{item.unitPrice.toFixed(2)}</td>
-                        <td className="py-3 px-4 text-right font-medium">¥{item.subtotal.toFixed(2)}</td>
+                        <td className="py-3 px-4 text-right">
+                          {item.discountAmount > 0 && (
+                            <p className="text-xs text-green-600 line-through">¥{item.originalAmount.toFixed(2)}</p>
+                          )}
+                          <p className="font-medium">¥{item.subtotal.toFixed(2)}</p>
+                        </td>
                         <td className="py-3 px-4 text-right text-green-600">¥{item.profit.toFixed(2)}</td>
                       </tr>
                     ))}

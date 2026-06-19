@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Minus, Trash2, ShoppingCart, Check, Tag } from 'lucide-react';
+import { ArrowLeft, Plus, Minus, Trash2, ShoppingCart, Check, Tag, AlertCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { SaleItem, Medicine, Promotion } from '../../types';
 import { findActivePromotion, calculatePromotionPrice, getPromotionDescription } from '../../utils/promotion';
@@ -9,7 +9,7 @@ import SearchInput from '../../components/SearchInput';
 
 interface CartItem {
   medicine: Medicine;
-  quantity: number;
+  payQuantity: number;
   promotion: Promotion | null;
 }
 
@@ -20,6 +20,7 @@ export default function NewSale() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [remark, setRemark] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const filteredMedicines = medicines.filter(m =>
     m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -28,90 +29,100 @@ export default function NewSale() {
 
   const addToCart = (medicine: Medicine) => {
     const existing = cart.find(item => item.medicine.id === medicine.id);
+    const promotion = findActivePromotion(medicine.id, promotions);
+    
     if (existing) {
-      if (existing.quantity < medicine.stock) {
+      const nextPayQty = existing.payQuantity + 1;
+      const promoResult = calculatePromotionPrice(medicine, nextPayQty, promotion);
+      if (promoResult.totalQuantity <= medicine.stock) {
         setCart(cart.map(item =>
           item.medicine.id === medicine.id
-            ? { ...item, quantity: item.quantity + 1 }
+            ? { ...item, payQuantity: nextPayQty }
             : item
         ));
+        setErrorMessage('');
       }
     } else {
       if (medicine.stock > 0) {
-        const promotion = findActivePromotion(medicine.id, promotions);
-        setCart([...cart, { medicine, quantity: 1, promotion }]);
+        setCart([...cart, { medicine, payQuantity: 1, promotion }]);
+        setErrorMessage('');
       }
     }
   };
 
-  const updateQuantity = (medicineId: string, quantity: number) => {
+  const updateQuantity = (medicineId: string, payQuantity: number) => {
     const item = cart.find(i => i.medicine.id === medicineId);
     if (!item) return;
     
-    if (quantity <= 0) {
+    if (payQuantity <= 0) {
       setCart(cart.filter(i => i.medicine.id !== medicineId));
-    } else if (quantity <= item.medicine.stock) {
-      setCart(cart.map(i =>
-        i.medicine.id === medicineId ? { ...i, quantity } : i
-      ));
+      setErrorMessage('');
+    } else {
+      const promoResult = calculatePromotionPrice(item.medicine, payQuantity, item.promotion);
+      if (promoResult.totalQuantity <= item.medicine.stock) {
+        setCart(cart.map(i =>
+          i.medicine.id === medicineId ? { ...i, payQuantity } : i
+        ));
+        setErrorMessage('');
+      }
     }
   };
 
   const removeFromCart = (medicineId: string) => {
     setCart(cart.filter(i => i.medicine.id !== medicineId));
+    setErrorMessage('');
   };
 
   const cartCalculation = useMemo(() => {
+    let totalOriginal = 0;
+    let totalDiscount = 0;
     let totalAmount = 0;
     let totalProfit = 0;
     const items: SaleItem[] = [];
-    let totalSaved = 0;
 
     cart.forEach(cartItem => {
-      const { medicine, quantity, promotion } = cartItem;
-      let unitPrice = medicine.salePrice;
-      let subtotal = quantity * unitPrice;
-      let freeQuantity = 0;
-
-      if (promotion) {
-        const promoResult = calculatePromotionPrice(medicine, quantity, promotion);
-        subtotal = promoResult.finalPrice;
-        freeQuantity = promoResult.freeQuantity;
-        const originalPrice = (quantity + freeQuantity) * unitPrice;
-        totalSaved += originalPrice - subtotal;
-      }
-
-      const profit = subtotal - quantity * medicine.costPrice;
+      const { medicine, payQuantity, promotion } = cartItem;
+      const promoResult = calculatePromotionPrice(medicine, payQuantity, promotion);
 
       items.push({
         id: Math.random().toString(36).substring(2, 15),
         medicineId: medicine.id,
         medicineName: medicine.name,
-        quantity,
-        unitPrice,
-        subtotal,
-        profit,
-        freeQuantity
+        payQuantity: promoResult.payQuantity,
+        freeQuantity: promoResult.freeQuantity,
+        totalQuantity: promoResult.totalQuantity,
+        unitPrice: medicine.salePrice,
+        originalAmount: promoResult.originalAmount,
+        discountAmount: promoResult.discountAmount,
+        subtotal: promoResult.finalAmount,
+        costAmount: promoResult.costAmount,
+        profit: promoResult.profit
       });
 
-      totalAmount += subtotal;
-      totalProfit += profit;
+      totalOriginal += promoResult.originalAmount;
+      totalDiscount += promoResult.discountAmount;
+      totalAmount += promoResult.finalAmount;
+      totalProfit += promoResult.profit;
     });
 
-    return { items, totalAmount, totalProfit, totalSaved };
+    return { items, totalOriginal, totalDiscount, totalAmount, totalProfit };
   }, [cart]);
 
   const handleSubmit = () => {
     if (cart.length === 0) return;
     
     const activePromotion = cart.find(i => i.promotion)?.promotion;
-    createSale(cartCalculation.items, activePromotion?.id, remark);
+    const result = createSale(cartCalculation.items, activePromotion?.id, remark);
     
-    setShowSuccess(true);
-    setTimeout(() => {
-      setShowSuccess(false);
-      navigate('/sales');
-    }, 1500);
+    if (result) {
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+        navigate('/sales');
+      }, 1500);
+    } else {
+      setErrorMessage('库存不足，无法完成销售');
+    }
   };
 
   return (
@@ -142,6 +153,9 @@ export default function NewSale() {
               {filteredMedicines.map(medicine => {
                 const inCart = cart.find(i => i.medicine.id === medicine.id);
                 const promotion = findActivePromotion(medicine.id, promotions);
+                const cartTotalQty = inCart 
+                  ? calculatePromotionPrice(medicine, inCart.payQuantity, promotion).totalQuantity 
+                  : 0;
                 
                 return (
                   <div
@@ -168,9 +182,16 @@ export default function NewSale() {
                         </p>
                       </div>
                       {inCart && (
-                        <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
-                          {inCart.quantity}
-                        </span>
+                        <div className="text-right">
+                          <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
+                            购买 {inCart.payQuantity}
+                          </span>
+                          {promotion && calculatePromotionPrice(medicine, inCart.payQuantity, promotion).freeQuantity > 0 && (
+                            <p className="text-xs text-orange-600 mt-1">
+                              赠 {calculatePromotionPrice(medicine, inCart.payQuantity, promotion).freeQuantity}
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
                     {promotion && (
@@ -198,58 +219,61 @@ export default function NewSale() {
               </div>
             </div>
 
-            <div className="p-4 max-h-[400px] overflow-y-auto">
+            <div className="p-4 max-h-[350px] overflow-y-auto">
               {cart.length === 0 ? (
                 <p className="text-center text-slate-400 py-8">请选择药品</p>
               ) : (
                 <div className="space-y-3">
-                  {cart.map(item => (
-                    <div key={item.medicine.id} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{item.medicine.name}</p>
-                        <p className="text-xs text-slate-500">¥{item.medicine.salePrice.toFixed(2)} / {item.medicine.unit}</p>
-                        {item.promotion && (
-                          <p className="text-xs text-orange-600 mt-1">
-                            <Tag className="w-3 h-3 inline mr-1" />
-                            {getPromotionDescription(item.promotion)}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <div className="flex items-center gap-1">
+                  {cart.map(item => {
+                    const promoResult = calculatePromotionPrice(item.medicine, item.payQuantity, item.promotion);
+                    return (
+                      <div key={item.medicine.id} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{item.medicine.name}</p>
+                          <p className="text-xs text-slate-500">¥{item.medicine.salePrice.toFixed(2)} / {item.medicine.unit}</p>
+                          {item.promotion && promoResult.freeQuantity > 0 && (
+                            <p className="text-xs text-orange-600 mt-1">
+                              <Tag className="w-3 h-3 inline mr-1" />
+                              买{item.promotion.buyQuantity}送{item.promotion.freeQuantity}，赠{promoResult.freeQuantity}{item.medicine.unit}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateQuantity(item.medicine.id, item.payQuantity - 1);
+                              }}
+                              className="w-7 h-7 rounded bg-slate-200 hover:bg-slate-300 flex items-center justify-center transition-colors"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="w-8 text-center font-medium">{item.payQuantity}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateQuantity(item.medicine.id, item.payQuantity + 1);
+                              }}
+                              className="w-7 h-7 rounded bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              updateQuantity(item.medicine.id, item.quantity - 1);
+                              removeFromCart(item.medicine.id);
                             }}
-                            className="w-7 h-7 rounded bg-slate-200 hover:bg-slate-300 flex items-center justify-center transition-colors"
+                            className="text-red-500 hover:text-red-700 text-xs flex items-center gap-1"
                           >
-                            <Minus className="w-3 h-3" />
-                          </button>
-                          <span className="w-8 text-center font-medium">{item.quantity}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              updateQuantity(item.medicine.id, item.quantity + 1);
-                            }}
-                            className="w-7 h-7 rounded bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
-                          >
-                            <Plus className="w-3 h-3" />
+                            <Trash2 className="w-3 h-3" />
+                            删除
                           </button>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeFromCart(item.medicine.id);
-                          }}
-                          className="text-red-500 hover:text-red-700 text-xs flex items-center gap-1"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          删除
-                        </button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -268,13 +292,13 @@ export default function NewSale() {
 
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">商品金额</span>
-                  <span>¥{(cartCalculation.totalAmount + cartCalculation.totalSaved).toFixed(2)}</span>
+                  <span className="text-slate-500">商品原价</span>
+                  <span>¥{cartCalculation.totalOriginal.toFixed(2)}</span>
                 </div>
-                {cartCalculation.totalSaved > 0 && (
+                {cartCalculation.totalDiscount > 0 && (
                   <div className="flex justify-between text-sm text-green-600">
-                    <span>优惠</span>
-                    <span>-¥{cartCalculation.totalSaved.toFixed(2)}</span>
+                    <span>优惠减免</span>
+                    <span>-¥{cartCalculation.totalDiscount.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-lg font-bold pt-2 border-t border-slate-200">
@@ -286,6 +310,13 @@ export default function NewSale() {
                   <span>¥{cartCalculation.totalProfit.toFixed(2)}</span>
                 </div>
               </div>
+
+              {errorMessage && (
+                <div className="flex items-center gap-2 p-3 bg-red-50 text-red-600 rounded-lg text-sm">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
 
               <button
                 onClick={handleSubmit}

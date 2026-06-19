@@ -45,7 +45,7 @@ export function calculatePromotionEffect(
 ): { normalSales: number; promotionSales: number; increaseRate: number } {
   const promotionSales = sales
     .filter(s => s.promotionId === promotion.id)
-    .reduce((sum, s) => sum + s.items.reduce((qty, item) => qty + item.quantity, 0), 0);
+    .reduce((sum, s) => sum + s.items.reduce((qty, item) => qty + item.totalQuantity, 0), 0);
   
   const promotionDays = daysBetween(new Date(promotion.startDate), new Date(promotion.endDate)) + 1;
   
@@ -60,7 +60,7 @@ export function calculatePromotionEffect(
     const totalBefore = beforePromotion.reduce((sum, s) => 
       sum + s.items.reduce((qty, item) => {
         if (promotion.medicineId && item.medicineId === promotion.medicineId) {
-          return qty + item.quantity;
+          return qty + item.totalQuantity;
         }
         return qty;
       }, 0), 0
@@ -88,7 +88,7 @@ export function getTopSellers(
       sale.items.forEach(item => {
         const existing = medicineStats.get(item.medicineId) || { quantity: 0, amount: 0, profit: 0 };
         medicineStats.set(item.medicineId, {
-          quantity: existing.quantity + item.quantity,
+          quantity: existing.quantity + item.totalQuantity,
           amount: existing.amount + item.subtotal,
           profit: existing.profit + item.profit
         });

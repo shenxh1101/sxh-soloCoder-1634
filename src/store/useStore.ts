@@ -40,7 +40,8 @@ interface AppState {
   updateSupplier: (id: string, data: Partial<Supplier>) => void;
   deleteSupplier: (id: string) => void;
   
-  createSale: (items: SaleItem[], promotionId?: string, remark?: string) => Sale;
+  createSale: (items: SaleItem[], promotionId?: string, remark?: string) => Sale | null;
+  validateStock: (items: SaleItem[]) => { valid: boolean; errors: string[] };
   
   addInventory: (record: Omit<InventoryRecord, 'id'>) => void;
   
@@ -132,16 +133,39 @@ export const useStore = create<AppState>()(
         }));
       },
       
+      validateStock: (items) => {
+        const { medicines } = get();
+        const errors: string[] = [];
+        
+        items.forEach((item) => {
+          const medicine = medicines.find((m) => m.id === item.medicineId);
+          if (!medicine) {
+            errors.push(`药品 ${item.medicineName} 不存在`);
+          } else if (medicine.stock < item.totalQuantity) {
+            errors.push(
+              `${medicine.name} 库存不足，需要 ${item.totalQuantity} ${medicine.unit}，实际只有 ${medicine.stock} ${medicine.unit}`
+            );
+          }
+        });
+        
+        return { valid: errors.length === 0, errors };
+      },
+      
       createSale: (items, promotionId, remark = '') => {
-        const { medicines, updateMedicine } = get();
+        const { medicines, updateMedicine, validateStock } = get();
+        
+        const validation = validateStock(items);
+        if (!validation.valid) {
+          return null;
+        }
+        
         const now = new Date().toISOString();
         
         items.forEach((item) => {
           const medicine = medicines.find((m) => m.id === item.medicineId);
           if (medicine) {
-            const totalQuantity = item.quantity + (item.freeQuantity || 0);
             updateMedicine(item.medicineId, {
-              stock: Math.max(0, medicine.stock - totalQuantity)
+              stock: medicine.stock - item.totalQuantity
             });
           }
         });

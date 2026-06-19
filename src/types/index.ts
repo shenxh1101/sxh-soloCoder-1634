@@ -47,11 +47,15 @@ export interface SaleItem {
   id: string;
   medicineId: string;
   medicineName: string;
-  quantity: number;
+  payQuantity: number;
+  freeQuantity: number;
+  totalQuantity: number;
   unitPrice: number;
+  originalAmount: number;
+  discountAmount: number;
   subtotal: number;
+  costAmount: number;
   profit: number;
-  freeQuantity?: number;
 }
 
 export interface Sale {
