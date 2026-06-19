@@ -290,7 +290,7 @@ export const useStore = create<AppState>()(
       },
 
       refundSale: (saleId, remark = '') => {
-        const { sales, batches, medicines, updateMedicine, updateBatch } = get();
+        const { sales, batches, medicines, updateMedicine, updateBatch, addBatch } = get();
         const sale = sales.find(s => s.id === saleId);
 
         if (!sale || sale.status !== 'completed') return false;
@@ -303,14 +303,44 @@ export const useStore = create<AppState>()(
             });
           }
 
-          item.batchDeductions.forEach(deduction => {
-            const batch = batches.find(b => b.id === deduction.batchId);
-            if (batch) {
-              updateBatch(deduction.batchId, {
-                quantity: batch.quantity + deduction.quantity
+          if (item.batchDeductions && item.batchDeductions.length > 0) {
+            item.batchDeductions.forEach(deduction => {
+              const batch = batches.find(b => b.id === deduction.batchId);
+              if (batch) {
+                updateBatch(deduction.batchId, {
+                  quantity: batch.quantity + deduction.quantity
+                });
+              }
+            });
+          } else {
+            const medicineBatches = batches
+              .filter(b => b.medicineId === item.medicineId)
+              .sort((a, b) => new Date(b.inboundDate).getTime() - new Date(a.inboundDate).getTime());
+
+            let remaining = item.totalQuantity;
+
+            for (const batch of medicineBatches) {
+              if (remaining <= 0) break;
+              const addBack = remaining;
+              updateBatch(batch.id, {
+                quantity: batch.quantity + addBack
+              });
+              remaining -= addBack;
+            }
+
+            if (remaining > 0 && medicine) {
+              addBatch({
+                medicineId: item.medicineId,
+                batchNumber: `RET-${Date.now().toString(36).toUpperCase()}`,
+                productionDate: medicine.productionDate,
+                expiryDate: medicine.expiryDate,
+                quantity: remaining,
+                unitCost: medicine.costPrice,
+                inboundDate: new Date().toISOString(),
+                supplierId: medicine.supplierId
               });
             }
-          });
+          }
         });
 
         set((state) => ({
@@ -430,17 +460,31 @@ export const useStore = create<AppState>()(
       },
 
       updatePurchaseOrderStatus: (id, status) => {
+        const now = new Date().toISOString();
         set((state) => ({
-          purchaseOrders: state.purchaseOrders.map(po =>
-            po.id === id ? { ...po, status } : po
-          )
+          purchaseOrders: state.purchaseOrders.map(po => {
+            if (po.id !== id) return po;
+            const updates: Partial<PurchaseOrder> = { status };
+            if (status === 'ordered' && !po.orderedAt) {
+              updates.orderedAt = now;
+            }
+            return { ...po, ...updates };
+          })
         }));
       },
 
       receivePurchaseOrder: (id) => {
-        const { purchaseOrders, addBatch, updateMedicine, medicines, addInventory } = get();
+        const { purchaseOrders, batches, inventoryRecords, addBatch, updateMedicine, medicines, addInventory } = get();
         const order = purchaseOrders.find(po => po.id === id);
-        if (!order || order.status !== 'ordered') return;
+        if (!order || order.status === 'received' || order.receivedAt) return;
+        if (order.status !== 'ordered') return;
+
+        const existingBatches = batches.filter(b => b.purchaseOrderId === id);
+        const existingRecords = inventoryRecords.filter(r => {
+          const orderItem = order.items.find(i => i.medicineId === r.medicineId && i.batchNumber === r.batchNumber);
+          return orderItem !== undefined;
+        });
+        if (existingBatches.length > 0 || existingRecords.length > 0) return;
 
         const now = new Date().toISOString();
 
@@ -512,15 +556,26 @@ export const useStore = create<AppState>()(
 
         medicines.forEach(medicine => {
           if (medicine.safetyStock <= 0) return;
-          const batchTotal = batches
-            .filter(b => b.medicineId === medicine.id && b.quantity > 0)
-            .reduce((sum, b) => sum + b.quantity, 0);
-          const stockPercentage = (batchTotal / medicine.safetyStock) * 100;
-          if (stockPercentage <= 100) {
+          
+          const medicineBatches = batches.filter(b => b.medicineId === medicine.id && b.quantity > 0);
+          
+          medicineBatches.forEach(batch => {
+            const stockPercentage = (batch.quantity / medicine.safetyStock) * 100;
+            if (stockPercentage <= 100) {
+              alerts.push({
+                medicine,
+                stockPercentage,
+                level: getStockAlertLevel(stockPercentage),
+                batch
+              });
+            }
+          });
+          
+          if (medicineBatches.length === 0) {
             alerts.push({
               medicine,
-              stockPercentage,
-              level: getStockAlertLevel(stockPercentage)
+              stockPercentage: 0,
+              level: 'critical'
             });
           }
         });
@@ -552,7 +607,7 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'pharmacy-storage',
-      version: 2,
+      version: 3,
       migrate: (persistedState: any) => {
         if (persistedState && !persistedState.batches) {
           persistedState.batches = [];
@@ -561,14 +616,21 @@ export const useStore = create<AppState>()(
           persistedState.purchaseOrders = [];
         }
         if (persistedState && persistedState.sales) {
-          persistedState.sales = persistedState.sales.map((s: any) => ({
-            ...s,
-            status: s.status || 'completed',
-            items: (s.items || []).map((item: any) => ({
+          persistedState.sales = persistedState.sales.map((s: any) => {
+            const items = (s.items || []).map((item: any) => ({
               ...item,
               batchDeductions: item.batchDeductions || []
-            }))
-          }));
+            }));
+            const totalAmount = items.reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
+            const totalProfit = items.reduce((sum: number, item: any) => sum + (item.profit || 0), 0);
+            return {
+              ...s,
+              status: s.status || 'completed',
+              totalAmount,
+              totalProfit,
+              items
+            };
+          });
         }
         return persistedState;
       }

@@ -73,15 +73,18 @@ export default function Dashboard() {
             {expiryAlerts.length === 0 ? (
               <p className="text-slate-500 text-center py-8">暂无即将过期的药品</p>
             ) : (
-              expiryAlerts.slice(0, 5).map((alert) => (
+              expiryAlerts.slice(0, 5).map((alert, idx) => (
                 <AlertCard
-                  key={alert.medicine.id}
+                  key={`${alert.medicine.id}-${alert.batch?.id || idx}`}
                   type="expiry"
                   title={alert.medicine.name}
-                  subtitle={`${CATEGORY_LABELS[alert.medicine.category]} · ${alert.medicine.specification}`}
+                  subtitle={alert.batch 
+                    ? `批号 ${alert.batch.batchNumber} · 有效期 ${alert.batch.expiryDate} · 库存 ${alert.batch.quantity} ${alert.medicine.unit}`
+                    : `${CATEGORY_LABELS[alert.medicine.category]} · ${alert.medicine.specification}`
+                  }
                   level={alert.level}
                   daysRemaining={alert.daysRemaining}
-                  onClick={() => navigate('/medicines')}
+                  onClick={() => navigate('/inventory')}
                 />
               ))
             )}
@@ -102,12 +105,15 @@ export default function Dashboard() {
             {stockAlerts.length === 0 ? (
               <p className="text-slate-500 text-center py-8">库存状态良好</p>
             ) : (
-              stockAlerts.slice(0, 5).map((alert) => (
+              stockAlerts.slice(0, 5).map((alert, idx) => (
                 <AlertCard
-                  key={alert.medicine.id}
+                  key={`${alert.medicine.id}-${alert.batch?.id || idx}`}
                   type="stock"
                   title={alert.medicine.name}
-                  subtitle={`库存 ${alert.medicine.stock} ${alert.medicine.unit} / 安全库存 ${alert.medicine.safetyStock} ${alert.medicine.unit}`}
+                  subtitle={alert.batch
+                    ? `批号 ${alert.batch.batchNumber} · 有效期 ${alert.batch.expiryDate} · 批次库存 ${alert.batch.quantity} / 安全库存 ${alert.medicine.safetyStock} ${alert.medicine.unit}`
+                    : `库存 ${alert.medicine.stock} ${alert.medicine.unit} / 安全库存 ${alert.medicine.safetyStock} ${alert.medicine.unit}`
+                  }
                   level={alert.level}
                   stockPercentage={alert.stockPercentage}
                   onClick={() => navigate('/inventory')}

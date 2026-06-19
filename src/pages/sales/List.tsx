@@ -42,6 +42,9 @@ export default function SaleList() {
     }
   };
 
+  const getSaleAmount = (sale: Sale) => sale.items.reduce((sum, item) => sum + item.subtotal, 0);
+  const getSaleProfit = (sale: Sale) => sale.items.reduce((sum, item) => sum + item.profit, 0);
+
   const columns: Column<Sale>[] = [
     {
       key: 'saleTime',
@@ -72,12 +75,12 @@ export default function SaleList() {
     {
       key: 'totalAmount',
       header: '销售金额',
-      render: (value) => <span className="font-semibold text-green-600">¥{Number(value).toFixed(2)}</span>
+      render: (_, row) => <span className="font-semibold text-green-600">¥{getSaleAmount(row).toFixed(2)}</span>
     },
     {
       key: 'totalProfit',
       header: '利润',
-      render: (value) => <span className="font-medium text-blue-600">¥{Number(value).toFixed(2)}</span>
+      render: (_, row) => <span className="font-medium text-blue-600">¥{getSaleProfit(row).toFixed(2)}</span>
     },
     {
       key: 'promotionId',
@@ -165,13 +168,13 @@ export default function SaleList() {
         <div className="bg-white rounded-xl p-4 border border-slate-200">
           <p className="text-sm text-slate-500">总销售额</p>
           <p className="text-2xl font-bold text-green-600 mt-1">
-            ¥{completedSales.reduce((sum, s) => sum + s.totalAmount, 0).toFixed(2)}
+            ¥{completedSales.reduce((sum, s) => sum + getSaleAmount(s), 0).toFixed(2)}
           </p>
         </div>
         <div className="bg-white rounded-xl p-4 border border-slate-200">
           <p className="text-sm text-slate-500">总利润</p>
           <p className="text-2xl font-bold text-blue-600 mt-1">
-            ¥{completedSales.reduce((sum, s) => sum + s.totalProfit, 0).toFixed(2)}
+            ¥{completedSales.reduce((sum, s) => sum + getSaleProfit(s), 0).toFixed(2)}
           </p>
         </div>
         <div className="bg-white rounded-xl p-4 border border-slate-200">
@@ -218,11 +221,11 @@ export default function SaleList() {
               </div>
               <div>
                 <p className="text-sm text-slate-500">销售金额</p>
-                <p className="font-semibold text-green-600 text-lg">¥{viewSale.totalAmount.toFixed(2)}</p>
+                <p className="font-semibold text-green-600 text-lg">¥{getSaleAmount(viewSale).toFixed(2)}</p>
               </div>
               <div>
                 <p className="text-sm text-slate-500">利润</p>
-                <p className="font-semibold text-blue-600 text-lg">¥{viewSale.totalProfit.toFixed(2)}</p>
+                <p className="font-semibold text-blue-600 text-lg">¥{getSaleProfit(viewSale).toFixed(2)}</p>
               </div>
             </div>
 

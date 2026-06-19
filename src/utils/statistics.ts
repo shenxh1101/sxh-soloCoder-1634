@@ -23,9 +23,11 @@ export function aggregateSalesByPeriod(
     }
     
     const existing = map.get(key) || { amount: 0, profit: 0 };
+    const itemAmount = sale.items.reduce((sum, item) => sum + item.subtotal, 0);
+    const itemProfit = sale.items.reduce((sum, item) => sum + item.profit, 0);
     map.set(key, {
-      amount: existing.amount + sale.totalAmount,
-      profit: existing.profit + sale.totalProfit
+      amount: existing.amount + itemAmount,
+      profit: existing.profit + itemProfit
     });
   });
   
@@ -112,8 +114,8 @@ export function getDailySales(
 ): { amount: number; count: number; profit: number } {
   const daySales = sales.filter(s => s.status === 'completed' && s.saleTime.startsWith(date));
   return {
-    amount: daySales.reduce((sum, s) => sum + s.totalAmount, 0),
+    amount: daySales.reduce((sum, s) => sum + s.items.reduce((itemSum, item) => itemSum + item.subtotal, 0), 0),
     count: daySales.length,
-    profit: daySales.reduce((sum, s) => sum + s.totalProfit, 0)
+    profit: daySales.reduce((sum, s) => sum + s.items.reduce((itemSum, item) => itemSum + item.profit, 0), 0)
   };
 }
