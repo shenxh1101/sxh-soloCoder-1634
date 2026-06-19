@@ -1,22 +1,35 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, ShoppingCart, Eye, Tag, Undo2 } from 'lucide-react';
+import { Plus, ShoppingCart, Eye, Tag, Undo2, MinusCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import DataTable, { Column } from '../../components/DataTable';
 import SearchInput from '../../components/SearchInput';
 import Modal from '../../components/Modal';
-import { Sale } from '../../types';
+import { Sale, RefundItem, SALE_STATUS_LABELS } from '../../types';
 import { formatDateTime } from '../../utils/date';
 import { cn } from '../../lib/utils';
 
+interface PartialRefundItem {
+  saleItemId: string;
+  medicineId: string;
+  medicineName: string;
+  maxQuantity: number;
+  refundQuantity: number;
+  unitPrice: number;
+  unitCost: number;
+}
+
 export default function SaleList() {
   const navigate = useNavigate();
-  const { sales, medicines, promotions, refundSale } = useStore();
+  const { sales, medicines, promotions, refundSale, partialRefundSale } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [viewSale, setViewSale] = useState<Sale | null>(null);
   const [dateFilter, setDateFilter] = useState('');
   const [refundTarget, setRefundTarget] = useState<Sale | null>(null);
   const [refundRemark, setRefundRemark] = useState('');
+  const [showPartialRefund, setShowPartialRefund] = useState(false);
+  const [partialRefundItems, setPartialRefundItems] = useState<PartialRefundItem[]>([]);
+  const [partialRefundRemark, setPartialRefundRemark] = useState('');
 
   const filteredSales = sales.filter(s => {
     const matchesSearch = s.items.some(item =>
@@ -42,6 +55,71 @@ export default function SaleList() {
     }
   };
 
+  const initPartialRefund = (sale: Sale) => {
+    const items: PartialRefundItem[] = sale.items.map(item => {
+      const alreadyRefunded = (sale.refundItems || [])
+        .filter(ri => ri.saleItemId === item.id)
+        .reduce((sum, ri) => sum + ri.quantity, 0);
+      return {
+        saleItemId: item.id,
+        medicineId: item.medicineId,
+        medicineName: item.medicineName,
+        maxQuantity: item.totalQuantity - alreadyRefunded,
+        refundQuantity: 0,
+        unitPrice: item.unitPrice,
+        unitCost: item.costAmount / item.totalQuantity
+      };
+    }).filter(item => item.maxQuantity > 0);
+
+    setPartialRefundItems(items);
+    setPartialRefundRemark('');
+    setShowPartialRefund(true);
+  };
+
+  const handlePartialRefund = () => {
+    if (!viewSale && !refundTarget) return;
+
+    const sale = viewSale || refundTarget;
+    if (!sale) return;
+
+    const refundItems: RefundItem[] = partialRefundItems
+      .filter(item => item.refundQuantity > 0 && item.refundQuantity <= item.maxQuantity)
+      .map(item => {
+        const saleItem = sale.items.find(si => si.id === item.saleItemId);
+        if (!saleItem) return null;
+
+        const priceRatio = item.refundQuantity / saleItem.totalQuantity;
+        const batchDeductions = (saleItem.batchDeductions || []).map(bd => ({
+          ...bd,
+          quantity: Math.round(bd.quantity * priceRatio * 100) / 100
+        }));
+
+        return {
+          saleItemId: item.saleItemId,
+          medicineId: item.medicineId,
+          medicineName: item.medicineName,
+          quantity: item.refundQuantity,
+          subtotal: Math.round(saleItem.subtotal * priceRatio * 100) / 100,
+          profit: Math.round(saleItem.profit * priceRatio * 100) / 100,
+          costAmount: Math.round(saleItem.costAmount * priceRatio * 100) / 100,
+          batchDeductions
+        };
+      })
+      .filter((ri): ri is RefundItem => ri !== null);
+
+    if (refundItems.length === 0) return;
+
+    partialRefundSale(sale.id, refundItems, partialRefundRemark);
+    setShowPartialRefund(false);
+    setPartialRefundItems([]);
+    setPartialRefundRemark('');
+    setRefundTarget(null);
+  };
+
+  const partialRefundTotal = partialRefundItems.reduce((sum, item) => {
+    return sum + (item.refundQuantity * item.unitPrice);
+  }, 0);
+
   const getSaleAmount = (sale: Sale) => sale.items.reduce((sum, item) => sum + item.subtotal, 0);
   const getSaleProfit = (sale: Sale) => sale.items.reduce((sum, item) => sum + item.profit, 0);
 
@@ -54,11 +132,19 @@ export default function SaleList() {
     {
       key: 'status',
       header: '状态',
-      render: (_, row) => row.status === 'completed' ? (
-        <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">已完成</span>
-      ) : (
-        <span className="px-2 py-1 bg-slate-100 text-slate-500 rounded text-xs font-medium">已退款</span>
-      )
+      render: (_, row) => {
+        const statusConfig = {
+          completed: { label: '已完成', className: 'bg-green-100 text-green-700' },
+          partially_refunded: { label: '部分退款', className: 'bg-yellow-100 text-yellow-700' },
+          refunded: { label: '已退款', className: 'bg-slate-100 text-slate-500' }
+        };
+        const config = statusConfig[row.status];
+        return (
+          <span className={cn('px-2 py-1 rounded text-xs font-medium', config.className)}>
+            {config.label}
+          </span>
+        );
+      }
     },
     {
       key: 'items',
@@ -208,9 +294,13 @@ export default function SaleList() {
               <div>
                 <p className="text-sm text-slate-500">订单状态</p>
                 <p className="font-medium">
-                  {viewSale.status === 'completed' ? (
+                  {viewSale.status === 'completed' && (
                     <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">已完成</span>
-                  ) : (
+                  )}
+                  {viewSale.status === 'partially_refunded' && (
+                    <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-medium">部分退款</span>
+                  )}
+                  {viewSale.status === 'refunded' && (
                     <span className="px-2 py-1 bg-slate-100 text-slate-500 rounded text-xs font-medium">已退款</span>
                   )}
                 </p>
@@ -257,45 +347,84 @@ export default function SaleList() {
                       <tr className="border-b border-slate-200">
                         <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">药品名称</th>
                         <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500">批号</th>
-                        <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500">数量</th>
+                        <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500">销售数量</th>
+                        <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500">已退数量</th>
                         <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500">单价</th>
                         <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500">小计</th>
                         <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500">利润</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {viewSale.items.map((item, idx) => (
-                        <tr key={idx} className="border-b border-slate-100 last:border-0">
-                          <td className="py-3 px-4">
-                            <p className="font-medium">{item.medicineName}</p>
-                            {item.freeQuantity > 0 && (
-                              <p className="text-xs text-orange-600">含赠送 {item.freeQuantity} 件</p>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-right text-sm text-slate-600">
-                            {item.batchDeductions.map(d => d.batchNumber).join(', ')}
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            {item.payQuantity}
-                            {item.freeQuantity > 0 && (
-                              <span className="text-orange-600"> + {item.freeQuantity}</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-right">¥{item.unitPrice.toFixed(2)}</td>
-                          <td className="py-3 px-4 text-right">
-                            {item.discountAmount > 0 && (
-                              <p className="text-xs text-green-600 line-through">¥{item.originalAmount.toFixed(2)}</p>
-                            )}
-                            <p className="font-medium">¥{item.subtotal.toFixed(2)}</p>
-                          </td>
-                          <td className="py-3 px-4 text-right text-green-600">¥{item.profit.toFixed(2)}</td>
-                        </tr>
-                      ))}
+                      {viewSale.items.map((item, idx) => {
+                        const refundedQty = (viewSale.refundItems || [])
+                          .filter(ri => ri.saleItemId === item.id)
+                          .reduce((sum, ri) => sum + ri.quantity, 0);
+                        return (
+                          <tr key={idx} className="border-b border-slate-100 last:border-0">
+                            <td className="py-3 px-4">
+                              <p className="font-medium">{item.medicineName}</p>
+                              {item.freeQuantity > 0 && (
+                                <p className="text-xs text-orange-600">含赠送 {item.freeQuantity} 件</p>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right text-sm text-slate-600">
+                              {item.batchDeductions.map(d => d.batchNumber).join(', ')}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {item.payQuantity}
+                              {item.freeQuantity > 0 && (
+                                <span className="text-orange-600"> + {item.freeQuantity}</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {refundedQty > 0 ? (
+                                <span className="text-red-600 font-medium">{refundedQty}</span>
+                              ) : (
+                                <span className="text-slate-400">0</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right">¥{item.unitPrice.toFixed(2)}</td>
+                            <td className="py-3 px-4 text-right">
+                              {item.discountAmount > 0 && (
+                                <p className="text-xs text-green-600 line-through">¥{item.originalAmount.toFixed(2)}</p>
+                              )}
+                              <p className="font-medium">¥{item.subtotal.toFixed(2)}</p>
+                            </td>
+                            <td className="py-3 px-4 text-right text-green-600">¥{item.profit.toFixed(2)}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
             </div>
+
+            {(viewSale.status === 'completed' || viewSale.status === 'partially_refunded') && (
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  onClick={() => {
+                    setRefundTarget(viewSale);
+                    setRefundRemark('');
+                    setViewSale(null);
+                  }}
+                  className="px-4 py-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors flex items-center gap-2"
+                >
+                  <Undo2 className="w-4 h-4" />
+                  整单退货
+                </button>
+                <button
+                  onClick={() => {
+                    initPartialRefund(viewSale);
+                    setViewSale(null);
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                >
+                  <MinusCircle className="w-4 h-4" />
+                  部分退货
+                </button>
+              </div>
+            )}
           </div>
         )}
       </Modal>
@@ -340,6 +469,110 @@ export default function SaleList() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={showPartialRefund}
+        onClose={() => {
+          setShowPartialRefund(false);
+          setPartialRefundItems([]);
+          setPartialRefundRemark('');
+        }}
+        title="部分退货"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            选择需要退货的药品和数量。退货后对应库存、批次将恢复，销售额和利润将按退货比例回滚。
+          </p>
+
+          <div className="bg-slate-50 rounded-lg overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-slate-100">
+                <tr>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500">药品名称</th>
+                  <th className="text-center py-3 px-4 text-xs font-semibold text-slate-500">可退数量</th>
+                  <th className="text-center py-3 px-4 text-xs font-semibold text-slate-500">退货数量</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500">单价</th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold text-slate-500">退货金额</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {partialRefundItems.map((item, idx) => (
+                  <tr key={idx}>
+                    <td className="py-3 px-4">
+                      <p className="font-medium">{item.medicineName}</p>
+                    </td>
+                    <td className="py-3 px-4 text-center text-slate-500">
+                      {item.maxQuantity}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <input
+                        type="number"
+                        min="0"
+                        max={item.maxQuantity}
+                        value={item.refundQuantity}
+                        onChange={(e) => {
+                          const qty = Math.min(item.maxQuantity, Math.max(0, parseInt(e.target.value) || 0));
+                          setPartialRefundItems(prev => 
+                            prev.map((i, index) => 
+                              index === idx ? { ...i, refundQuantity: qty } : i
+                            )
+                          );
+                        }}
+                        className="w-20 px-2 py-1.5 border border-slate-200 rounded text-center focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      />
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      ¥{item.unitPrice.toFixed(2)}
+                    </td>
+                    <td className="py-3 px-4 text-right font-medium text-red-600">
+                      -¥{(item.refundQuantity * item.unitPrice).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end">
+            <div className="text-right">
+              <p className="text-sm text-slate-500">预计退货金额</p>
+              <p className="text-2xl font-bold text-red-600">-¥{partialRefundTotal.toFixed(2)}</p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">退货备注</label>
+            <textarea
+              value={partialRefundRemark}
+              onChange={(e) => setPartialRefundRemark(e.target.value)}
+              placeholder="请输入退货备注（可选）"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
+              rows={2}
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={() => {
+                setShowPartialRefund(false);
+                setPartialRefundItems([]);
+                setPartialRefundRemark('');
+              }}
+              className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors text-sm"
+            >
+              取消
+            </button>
+            <button
+              onClick={handlePartialRefund}
+              disabled={partialRefundItems.every(i => i.refundQuantity === 0)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+            >
+              确认部分退货
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

@@ -1,20 +1,24 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, TrendingUp, Package } from 'lucide-react';
+import { Plus, TrendingUp, Package, ClipboardCheck, Clock, X, AlertCircle } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import DataTable, { Column } from '../../components/DataTable';
 import SearchInput from '../../components/SearchInput';
 import Modal from '../../components/Modal';
-import { InventoryRecord, Medicine, MedicineBatch, CATEGORY_LABELS } from '../../types';
+import { InventoryRecord, Medicine, MedicineBatch, CATEGORY_LABELS, StockTake, StockTakeItem, SALE_STATUS_LABELS } from '../../types';
 import { formatDate, daysToExpiry, getExpiryAlertLevel, getStockAlertLevel } from '../../utils/date';
 import { cn } from '../../lib/utils';
 
 export default function InventoryList() {
   const navigate = useNavigate();
-  const { medicines, inventoryRecords, batches, addInventory } = useStore();
+  const { medicines, inventoryRecords, batches, addInventory, stockTakes, createStockTake, updateStockTakeItem, confirmStockTake, getStockTakesByDate } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
+  const [stockTakeSearch, setStockTakeSearch] = useState('');
   const [showInboundModal, setShowInboundModal] = useState(false);
+  const [showStockTakeModal, setShowStockTakeModal] = useState(false);
+  const [showStockTakeHistory, setShowStockTakeHistory] = useState(false);
   const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null);
+  const [currentStockTake, setCurrentStockTake] = useState<StockTake | null>(null);
   const [inboundForm, setInboundForm] = useState({
     medicineId: '',
     quantity: 10,
@@ -23,6 +27,7 @@ export default function InventoryList() {
     expiryDate: '',
     batchNumber: ''
   });
+  const [activeTab, setActiveTab] = useState<'status' | 'batches' | 'records' | 'stocktake'>('status');
 
   const filteredRecords = inventoryRecords.filter(r => {
     const medicine = medicines.find(m => m.id === r.medicineId);
@@ -30,6 +35,11 @@ export default function InventoryList() {
     return medicine.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
            r.batchNumber.toLowerCase().includes(searchTerm.toLowerCase());
   });
+
+  const filteredStockTakes = stockTakes.filter(st => 
+    st.takeDate.includes(stockTakeSearch) ||
+    st.remark.toLowerCase().includes(stockTakeSearch.toLowerCase())
+  );
 
   const openInboundModal = (medicine?: Medicine) => {
     if (medicine) {
@@ -68,6 +78,59 @@ export default function InventoryList() {
       inboundDate: new Date().toISOString()
     });
     setShowInboundModal(false);
+  };
+
+  const startStockTake = () => {
+    const items: Omit<StockTakeItem, 'id' | 'difference' | 'differenceAmount'>[] = [];
+    
+    batches.filter(b => b.quantity > 0).forEach(batch => {
+      const medicine = medicines.find(m => m.id === batch.medicineId);
+      if (medicine) {
+        items.push({
+          medicineId: batch.medicineId,
+          medicineName: medicine.name,
+          batchId: batch.id,
+          batchNumber: batch.batchNumber,
+          expectedQuantity: batch.quantity,
+          actualQuantity: batch.quantity,
+          unitCost: batch.unitCost
+        });
+      }
+    });
+
+    medicines.filter(m => {
+      const hasBatches = batches.some(b => b.medicineId === m.id && b.quantity > 0);
+      return !hasBatches && m.stock > 0;
+    }).forEach(medicine => {
+      items.push({
+        medicineId: medicine.id,
+        medicineName: medicine.name,
+        expectedQuantity: medicine.stock,
+        actualQuantity: medicine.stock,
+        unitCost: medicine.costPrice
+      });
+    });
+
+    const newStockTake = createStockTake(items);
+    setCurrentStockTake(newStockTake);
+    setShowStockTakeModal(true);
+  };
+
+  const handleActualQuantityChange = (itemId: string, value: string) => {
+    if (!currentStockTake) return;
+    const actualQuantity = parseInt(value) || 0;
+    updateStockTakeItem(currentStockTake.id, itemId, actualQuantity);
+    const updated = stockTakes.find(st => st.id === currentStockTake.id);
+    if (updated) setCurrentStockTake(updated);
+  };
+
+  const handleConfirmStockTake = () => {
+    if (!currentStockTake) return;
+    const success = confirmStockTake(currentStockTake.id);
+    if (success) {
+      setShowStockTakeModal(false);
+      setCurrentStockTake(null);
+    }
   };
 
   const inventoryColumns: Column<Medicine>[] = [
@@ -249,6 +312,62 @@ export default function InventoryList() {
     }
   ];
 
+  const stockTakeColumns: Column<StockTake>[] = [
+    {
+      key: 'takeDate',
+      header: '盘点日期',
+      render: (value) => formatDate(value as string)
+    },
+    {
+      key: 'status',
+      header: '状态',
+      render: (value) => (
+        <span className={cn(
+          'px-2 py-1 rounded text-xs font-medium',
+          value === 'draft' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
+        )}>
+          {value === 'draft' ? '草稿' : '已确认'}
+        </span>
+      )
+    },
+    {
+      key: 'items',
+      header: '盘点品种',
+      render: (_, row) => `${row.items.length} 个品种`
+    },
+    {
+      key: 'totalDifference',
+      header: '盘盈/盘亏',
+      render: (_, row) => (
+        <span className={cn(
+          'font-medium',
+          row.totalDifference > 0 ? 'text-green-600' :
+          row.totalDifference < 0 ? 'text-red-600' : 'text-slate-600'
+        )}>
+          {row.totalDifference > 0 ? '+' : ''}{row.totalDifference}
+        </span>
+      )
+    },
+    {
+      key: 'totalDifferenceAmount',
+      header: '盈亏金额',
+      render: (_, row) => (
+        <span className={cn(
+          'font-medium',
+          row.totalDifferenceAmount > 0 ? 'text-green-600' :
+          row.totalDifferenceAmount < 0 ? 'text-red-600' : 'text-slate-600'
+        )}>
+          {row.totalDifferenceAmount > 0 ? '+' : ''}¥{row.totalDifferenceAmount.toFixed(2)}
+        </span>
+      )
+    },
+    {
+      key: 'createdAt',
+      header: '创建时间',
+      render: (value) => formatDate(value as string)
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -256,48 +375,97 @@ export default function InventoryList() {
           <h1 className="text-2xl font-bold text-slate-900">库存管理</h1>
           <p className="text-slate-500 mt-1">管理药品库存和入库记录</p>
         </div>
-        <button
-          onClick={() => openInboundModal()}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium shadow-lg shadow-orange-500/30"
-        >
-          <Plus className="w-5 h-5" />
-          新增入库
-        </button>
-      </div>
-
-      <div className="bg-white rounded-xl p-6 border border-slate-200">
-        <h2 className="text-lg font-semibold text-slate-900 mb-4">库存状态</h2>
-        <DataTable
-          columns={inventoryColumns}
-          data={medicines}
-          emptyMessage="暂无药品数据"
-        />
-      </div>
-
-      <div className="bg-white rounded-xl p-6 border border-slate-200">
-        <h2 className="text-lg font-semibold text-slate-900 mb-4">批次明细</h2>
-        <DataTable
-          columns={batchColumns}
-          data={batches}
-          emptyMessage="暂无批次数据"
-        />
-      </div>
-
-      <div className="bg-white rounded-xl p-6 border border-slate-200">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-slate-900">入库记录</h2>
-          <SearchInput
-            value={searchTerm}
-            onChange={setSearchTerm}
-            placeholder="搜索药品或批号..."
-            className="w-64"
-          />
+        <div className="flex gap-3">
+          <button
+            onClick={startStockTake}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-lg shadow-blue-500/30"
+          >
+            <ClipboardCheck className="w-5 h-5" />
+            新建盘点
+          </button>
+          <button
+            onClick={() => openInboundModal()}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium shadow-lg shadow-orange-500/30"
+          >
+            <Plus className="w-5 h-5" />
+            新增入库
+          </button>
         </div>
-        <DataTable
-          columns={recordColumns}
-          data={filteredRecords}
-          emptyMessage="暂无入库记录"
-        />
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200">
+        <div className="flex border-b border-slate-200">
+          {[
+            { key: 'status', label: '库存状态' },
+            { key: 'batches', label: '批次明细' },
+            { key: 'records', label: '入库记录' },
+            { key: 'stocktake', label: '盘点历史' }
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key as any)}
+              className={cn(
+                'px-6 py-3 text-sm font-medium transition-colors',
+                activeTab === tab.key
+                  ? 'text-orange-600 border-b-2 border-orange-600'
+                  : 'text-slate-500 hover:text-slate-700'
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-6">
+          {activeTab === 'status' && (
+            <DataTable
+              columns={inventoryColumns}
+              data={medicines}
+              emptyMessage="暂无药品数据"
+            />
+          )}
+          {activeTab === 'batches' && (
+            <DataTable
+              columns={batchColumns}
+              data={batches}
+              emptyMessage="暂无批次数据"
+            />
+          )}
+          {activeTab === 'records' && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <SearchInput
+                  value={searchTerm}
+                  onChange={setSearchTerm}
+                  placeholder="搜索药品或批号..."
+                  className="w-64"
+                />
+              </div>
+              <DataTable
+                columns={recordColumns}
+                data={filteredRecords}
+                emptyMessage="暂无入库记录"
+              />
+            </div>
+          )}
+          {activeTab === 'stocktake' && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <SearchInput
+                  value={stockTakeSearch}
+                  onChange={setStockTakeSearch}
+                  placeholder="搜索日期或备注..."
+                  className="w-64"
+                />
+              </div>
+              <DataTable
+                columns={stockTakeColumns}
+                data={filteredStockTakes}
+                emptyMessage="暂无盘点记录"
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       <Modal
@@ -414,6 +582,135 @@ export default function InventoryList() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={showStockTakeModal}
+        onClose={() => setShowStockTakeModal(false)}
+        title="库存盘点"
+        size="xl"
+      >
+        {currentStockTake && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-slate-50 rounded-lg p-4">
+                <p className="text-sm text-slate-500">盘点日期</p>
+                <p className="font-semibold text-lg">{formatDate(currentStockTake.takeDate)}</p>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-4">
+                <p className="text-sm text-slate-500">盈亏数量</p>
+                <p className={cn(
+                  'font-semibold text-lg',
+                  currentStockTake.totalDifference > 0 ? 'text-green-600' :
+                  currentStockTake.totalDifference < 0 ? 'text-red-600' : 'text-slate-600'
+                )}>
+                  {currentStockTake.totalDifference > 0 ? '+' : ''}{currentStockTake.totalDifference}
+                </p>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-4">
+                <p className="text-sm text-slate-500">盈亏金额</p>
+                <p className={cn(
+                  'font-semibold text-lg',
+                  currentStockTake.totalDifferenceAmount > 0 ? 'text-green-600' :
+                  currentStockTake.totalDifferenceAmount < 0 ? 'text-red-600' : 'text-slate-600'
+                )}>
+                  {currentStockTake.totalDifferenceAmount > 0 ? '+' : ''}¥{currentStockTake.totalDifferenceAmount.toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            <div className="border border-slate-200 rounded-lg max-h-96 overflow-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">药品名称</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">批号</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">系统库存</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">实盘数量</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">盈亏</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">盈亏金额</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {currentStockTake.items.map(item => (
+                    <tr key={item.id}>
+                      <td className="px-4 py-3">
+                        <p className="font-medium">{item.medicineName}</p>
+                        {item.batchNumber && (
+                          <p className="text-xs text-slate-500 font-mono">{item.batchNumber}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-sm">{item.batchNumber || '-'}</td>
+                      <td className="px-4 py-3 text-center font-medium">{item.expectedQuantity}</td>
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="number"
+                          min="0"
+                          value={item.actualQuantity}
+                          onChange={(e) => handleActualQuantityChange(item.id, e.target.value)}
+                          className="w-24 px-2 py-1.5 border border-slate-200 rounded text-center focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        />
+                      </td>
+                      <td className={cn(
+                        'px-4 py-3 text-center font-medium',
+                        item.difference > 0 ? 'text-green-600' :
+                        item.difference < 0 ? 'text-red-600' : 'text-slate-600'
+                      )}>
+                        {item.difference > 0 ? '+' : ''}{item.difference}
+                      </td>
+                      <td className={cn(
+                        'px-4 py-3 text-right font-medium',
+                        item.differenceAmount > 0 ? 'text-green-600' :
+                        item.differenceAmount < 0 ? 'text-red-600' : 'text-slate-600'
+                      )}>
+                        {item.differenceAmount > 0 ? '+' : ''}¥{item.differenceAmount.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                备注
+              </label>
+              <textarea
+                value={currentStockTake.remark}
+                disabled
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                rows={2}
+                placeholder="盘点备注"
+              />
+            </div>
+
+            {currentStockTake.items.some(i => i.difference !== 0) && (
+              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-amber-800">存在盈亏差异</p>
+                  <p className="text-sm text-amber-700 mt-1">确认后将自动调整药品总库存和对应批次库存，请仔细核对实盘数量。</p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+              <button
+                onClick={() => setShowStockTakeModal(false)}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmStockTake}
+                disabled={currentStockTake.status !== 'draft'}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+              >
+                确认盘点
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -6,6 +6,44 @@ export type AlertLevel = 'critical' | 'warning' | 'normal';
 
 export type PurchaseOrderStatus = 'pending' | 'ordered' | 'received' | 'cancelled';
 
+export type SaleStatus = 'completed' | 'partially_refunded' | 'refunded';
+
+export interface RefundItem {
+  saleItemId: string;
+  medicineId: string;
+  medicineName: string;
+  quantity: number;
+  subtotal: number;
+  profit: number;
+  costAmount: number;
+  batchDeductions: BatchDeduction[];
+}
+
+export interface StockTakeItem {
+  id: string;
+  medicineId: string;
+  medicineName: string;
+  batchId?: string;
+  batchNumber?: string;
+  expectedQuantity: number;
+  actualQuantity: number;
+  difference: number;
+  unitCost: number;
+  differenceAmount: number;
+}
+
+export interface StockTake {
+  id: string;
+  takeDate: string;
+  status: 'draft' | 'confirmed';
+  items: StockTakeItem[];
+  totalDifference: number;
+  totalDifferenceAmount: number;
+  remark: string;
+  createdAt: string;
+  confirmedAt?: string;
+}
+
 export interface Medicine {
   id: string;
   name: string;
@@ -89,7 +127,8 @@ export interface Sale {
   promotionId?: string;
   remark: string;
   items: SaleItem[];
-  status: 'completed' | 'refunded';
+  status: SaleStatus;
+  refundItems?: RefundItem[];
   refundTime?: string;
   refundRemark?: string;
 }
@@ -167,6 +206,20 @@ export interface PromotionEffect {
   increaseRate: number;
 }
 
+export interface SupplierPurchaseSummary {
+  supplierId: string;
+  supplierName: string;
+  purchaseCount: number;
+  totalAmount: number;
+  lastReceiveDate: string | null;
+  topMedicines: Array<{
+    medicineId: string;
+    medicineName: string;
+    totalQuantity: number;
+    totalAmount: number;
+  }>;
+}
+
 export const CATEGORY_LABELS: Record<MedicineCategory, string> = {
   cold: '感冒药',
   hypertension: '降压药',
@@ -185,4 +238,10 @@ export const PURCHASE_ORDER_STATUS_LABELS: Record<PurchaseOrderStatus, string> =
   ordered: '已下单',
   received: '已入库',
   cancelled: '已取消'
+};
+
+export const SALE_STATUS_LABELS: Record<SaleStatus, string> = {
+  completed: '已完成',
+  partially_refunded: '部分退款',
+  refunded: '已退款'
 };

@@ -7,7 +7,7 @@ export function aggregateSalesByPeriod(
 ): Array<{ period: string; amount: number; profit: number }> {
   const map = new Map<string, { amount: number; profit: number }>();
   
-  sales.filter(s => s.status === 'completed').forEach(sale => {
+  sales.filter(s => s.status !== 'refunded').forEach(sale => {
     const date = new Date(sale.saleTime);
     let key: string;
     
@@ -23,11 +23,20 @@ export function aggregateSalesByPeriod(
     }
     
     const existing = map.get(key) || { amount: 0, profit: 0 };
+    
     const itemAmount = sale.items.reduce((sum, item) => sum + item.subtotal, 0);
     const itemProfit = sale.items.reduce((sum, item) => sum + item.profit, 0);
+    
+    let refundAmount = 0;
+    let refundProfit = 0;
+    if (sale.refundItems && sale.refundItems.length > 0) {
+      refundAmount = sale.refundItems.reduce((sum, item) => sum + item.subtotal, 0);
+      refundProfit = sale.refundItems.reduce((sum, item) => sum + item.profit, 0);
+    }
+    
     map.set(key, {
-      amount: existing.amount + itemAmount,
-      profit: existing.profit + itemProfit
+      amount: existing.amount + (itemAmount - refundAmount),
+      profit: existing.profit + (itemProfit - refundProfit)
     });
   });
   
@@ -85,14 +94,37 @@ export function getTopSellers(
   
   const medicineStats = new Map<string, { quantity: number; amount: number; profit: number }>();
   
-  sales.filter(s => s.status === 'completed').forEach(sale => {
+  sales.filter(s => s.status !== 'refunded').forEach(sale => {
     if (sale.saleTime >= startDate) {
+      const refundMap = new Map<string, number>();
+      if (sale.refundItems) {
+        sale.refundItems.forEach(ri => {
+          const existing = refundMap.get(ri.medicineId) || 0;
+          refundMap.set(ri.medicineId, existing + ri.quantity);
+        });
+      }
+      
+      const refundAmountMap = new Map<string, number>();
+      const refundProfitMap = new Map<string, number>();
+      if (sale.refundItems) {
+        sale.refundItems.forEach(ri => {
+          const existingAmount = refundAmountMap.get(ri.medicineId) || 0;
+          const existingProfit = refundProfitMap.get(ri.medicineId) || 0;
+          refundAmountMap.set(ri.medicineId, existingAmount + ri.subtotal);
+          refundProfitMap.set(ri.medicineId, existingProfit + ri.profit);
+        });
+      }
+      
       sale.items.forEach(item => {
+        const refundQty = refundMap.get(item.medicineId) || 0;
+        const refundAmount = refundAmountMap.get(item.medicineId) || 0;
+        const refundProfit = refundProfitMap.get(item.medicineId) || 0;
+        
         const existing = medicineStats.get(item.medicineId) || { quantity: 0, amount: 0, profit: 0 };
         medicineStats.set(item.medicineId, {
-          quantity: existing.quantity + item.totalQuantity,
-          amount: existing.amount + item.subtotal,
-          profit: existing.profit + item.profit
+          quantity: existing.quantity + Math.max(0, item.totalQuantity - refundQty),
+          amount: existing.amount + Math.max(0, item.subtotal - refundAmount),
+          profit: existing.profit + Math.max(0, item.profit - refundProfit)
         });
       });
     }
@@ -112,10 +144,29 @@ export function getDailySales(
   sales: Sale[],
   date: string
 ): { amount: number; count: number; profit: number } {
-  const daySales = sales.filter(s => s.status === 'completed' && s.saleTime.startsWith(date));
+  const daySales = sales.filter(s => s.status !== 'refunded' && s.saleTime.startsWith(date));
+  
+  let totalAmount = 0;
+  let totalProfit = 0;
+  
+  daySales.forEach(sale => {
+    const itemAmount = sale.items.reduce((sum, item) => sum + item.subtotal, 0);
+    const itemProfit = sale.items.reduce((sum, item) => sum + item.profit, 0);
+    
+    let refundAmount = 0;
+    let refundProfit = 0;
+    if (sale.refundItems && sale.refundItems.length > 0) {
+      refundAmount = sale.refundItems.reduce((sum, item) => sum + item.subtotal, 0);
+      refundProfit = sale.refundItems.reduce((sum, item) => sum + item.profit, 0);
+    }
+    
+    totalAmount += (itemAmount - refundAmount);
+    totalProfit += (itemProfit - refundProfit);
+  });
+  
   return {
-    amount: daySales.reduce((sum, s) => sum + s.items.reduce((itemSum, item) => itemSum + item.subtotal, 0), 0),
+    amount: totalAmount,
     count: daySales.length,
-    profit: daySales.reduce((sum, s) => sum + s.items.reduce((itemSum, item) => itemSum + item.profit, 0), 0)
+    profit: totalProfit
   };
 }

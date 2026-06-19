@@ -16,7 +16,12 @@ import {
   BatchDeduction,
   PurchaseOrder,
   PurchaseOrderItem,
-  PurchaseOrderStatus
+  PurchaseOrderStatus,
+  StockTake,
+  StockTakeItem,
+  RefundItem,
+  SupplierPurchaseSummary,
+  SaleStatus
 } from '../types';
 import {
   daysToExpiry,
@@ -36,6 +41,7 @@ interface AppState {
   inventoryRecords: InventoryRecord[];
   batches: MedicineBatch[];
   purchaseOrders: PurchaseOrder[];
+  stockTakes: StockTake[];
 
   loadData: () => void;
 
@@ -50,6 +56,7 @@ interface AppState {
   createSale: (items: SaleItem[], promotionId?: string, remark?: string) => Sale | null;
   validateStock: (items: SaleItem[]) => { valid: boolean; errors: string[] };
   refundSale: (saleId: string, remark?: string) => boolean;
+  partialRefundSale: (saleId: string, refundItems: RefundItem[], remark?: string) => boolean;
 
   addInventory: (record: Omit<InventoryRecord, 'id'>) => void;
 
@@ -67,6 +74,12 @@ interface AppState {
   createPurchaseOrder: (items: Omit<PurchaseOrderItem, 'id'>[], supplierId: string, remark?: string) => PurchaseOrder;
   updatePurchaseOrderStatus: (id: string, status: PurchaseOrderStatus) => void;
   receivePurchaseOrder: (id: string) => void;
+  getSupplierPurchaseSummary: () => SupplierPurchaseSummary[];
+
+  createStockTake: (items: Omit<StockTakeItem, 'id' | 'difference' | 'differenceAmount'>[], remark?: string) => StockTake;
+  updateStockTakeItem: (stockTakeId: string, itemId: string, actualQuantity: number) => void;
+  confirmStockTake: (stockTakeId: string) => boolean;
+  getStockTakesByDate: (date?: string) => StockTake[];
 
   getExpiryAlerts: (days?: number) => ExpiryAlert[];
   getStockAlerts: () => StockAlert[];
@@ -87,9 +100,10 @@ export const useStore = create<AppState>()(
       inventoryRecords: [],
       batches: [],
       purchaseOrders: [],
+      stockTakes: [],
 
       loadData: () => {
-        const { medicines, suppliers, sales, promotions, inventoryRecords, batches, purchaseOrders } = get();
+        const { medicines, suppliers, sales, promotions, inventoryRecords, batches, purchaseOrders, stockTakes } = get();
         if (medicines.length === 0) {
           set({
             medicines: mockMedicines,
@@ -98,7 +112,8 @@ export const useStore = create<AppState>()(
             promotions: mockPromotions,
             inventoryRecords: mockInventoryRecords,
             batches: mockBatches,
-            purchaseOrders: mockPurchaseOrders
+            purchaseOrders: mockPurchaseOrders,
+            stockTakes: []
           });
         }
       },
@@ -354,6 +369,100 @@ export const useStore = create<AppState>()(
         return true;
       },
 
+      partialRefundSale: (saleId, refundItems, remark = '') => {
+        const { sales, batches, medicines, updateMedicine, updateBatch, addBatch } = get();
+        const sale = sales.find(s => s.id === saleId);
+
+        if (!sale || sale.status === 'refunded') return false;
+        if (refundItems.length === 0) return false;
+
+        const existingRefundItems = sale.refundItems || [];
+
+        refundItems.forEach(refundItem => {
+          const medicine = medicines.find(m => m.id === refundItem.medicineId);
+          if (medicine) {
+            updateMedicine(refundItem.medicineId, {
+              stock: medicine.stock + refundItem.quantity
+            });
+          }
+
+          if (refundItem.batchDeductions && refundItem.batchDeductions.length > 0) {
+            refundItem.batchDeductions.forEach(deduction => {
+              const batch = batches.find(b => b.id === deduction.batchId);
+              if (batch) {
+                updateBatch(deduction.batchId, {
+                  quantity: batch.quantity + deduction.quantity
+                });
+              }
+            });
+          } else {
+            const medicineBatches = batches
+              .filter(b => b.medicineId === refundItem.medicineId)
+              .sort((a, b) => new Date(b.inboundDate).getTime() - new Date(a.inboundDate).getTime());
+
+            let remaining = refundItem.quantity;
+
+            for (const batch of medicineBatches) {
+              if (remaining <= 0) break;
+              const addBack = remaining;
+              updateBatch(batch.id, {
+                quantity: batch.quantity + addBack
+              });
+              remaining -= addBack;
+            }
+
+            if (remaining > 0 && medicine) {
+              addBatch({
+                medicineId: refundItem.medicineId,
+                batchNumber: `RET-${Date.now().toString(36).toUpperCase()}`,
+                productionDate: medicine.productionDate,
+                expiryDate: medicine.expiryDate,
+                quantity: remaining,
+                unitCost: medicine.costPrice,
+                inboundDate: new Date().toISOString(),
+                supplierId: medicine.supplierId
+              });
+            }
+          }
+        });
+
+        const totalRefundAmount = refundItems.reduce((sum, item) => sum + item.subtotal, 0);
+        const totalRefundProfit = refundItems.reduce((sum, item) => sum + item.profit, 0);
+
+        const newTotalAmount = sale.totalAmount - totalRefundAmount;
+        const newTotalProfit = sale.totalProfit - totalRefundProfit;
+
+        const allRefunded = sale.items.every(saleItem => {
+          const totalRefundedQty = [...existingRefundItems, ...refundItems]
+            .filter(ri => ri.saleItemId === saleItem.id)
+            .reduce((sum, ri) => sum + ri.quantity, 0);
+          return totalRefundedQty >= saleItem.totalQuantity;
+        });
+
+        let newStatus: SaleStatus = 'partially_refunded';
+        if (allRefunded) {
+          newStatus = 'refunded';
+        }
+
+        set((state) => ({
+          sales: state.sales.map(s =>
+            s.id === saleId
+              ? {
+                  ...s,
+                  totalAmount: Math.max(0, newTotalAmount),
+                  totalProfit: Math.max(0, newTotalProfit),
+                  status: newStatus,
+                  refundItems: [...existingRefundItems, ...refundItems],
+                  refundTime: new Date().toISOString(),
+                  refundRemark: remark
+                }
+              : s
+          )
+        }));
+
+        return true;
+      },
+
       addInventory: (record) => {
         const { updateMedicine, medicines, addBatch } = get();
         const medicine = medicines.find((m) => m.id === record.medicineId);
@@ -527,6 +636,169 @@ export const useStore = create<AppState>()(
         }));
       },
 
+      getSupplierPurchaseSummary: () => {
+        const { purchaseOrders, suppliers } = get();
+        const summaries: SupplierPurchaseSummary[] = [];
+
+        suppliers.forEach(supplier => {
+          const supplierOrders = purchaseOrders.filter(po => po.supplierId === supplier.id);
+          const receivedOrders = supplierOrders.filter(po => po.status === 'received');
+          
+          const purchaseCount = receivedOrders.length;
+          const totalAmount = receivedOrders.reduce((sum, po) => sum + po.totalAmount, 0);
+          
+          let lastReceiveDate: string | null = null;
+          if (receivedOrders.length > 0) {
+            const sorted = [...receivedOrders].sort((a, b) => 
+              new Date(b.receivedAt || b.createdAt).getTime() - new Date(a.receivedAt || a.createdAt).getTime()
+            );
+            lastReceiveDate = sorted[0].receivedAt || sorted[0].createdAt;
+          }
+
+          const medicineStats = new Map<string, { name: string; quantity: number; amount: number }>();
+          receivedOrders.forEach(po => {
+            po.items.forEach(item => {
+              const existing = medicineStats.get(item.medicineId) || { name: item.medicineName, quantity: 0, amount: 0 };
+              medicineStats.set(item.medicineId, {
+                name: item.medicineName,
+                quantity: existing.quantity + item.quantity,
+                amount: existing.amount + item.totalCost
+              });
+            });
+          });
+
+          const topMedicines = Array.from(medicineStats.entries())
+            .map(([medicineId, stats]) => ({
+              medicineId,
+              medicineName: stats.name,
+              totalQuantity: stats.quantity,
+              totalAmount: stats.amount
+            }))
+            .sort((a, b) => b.totalAmount - a.totalAmount)
+            .slice(0, 5);
+
+          summaries.push({
+            supplierId: supplier.id,
+            supplierName: supplier.name,
+            purchaseCount,
+            totalAmount,
+            lastReceiveDate,
+            topMedicines
+          });
+        });
+
+        return summaries.sort((a, b) => b.totalAmount - a.totalAmount);
+      },
+
+      createStockTake: (items, remark = '') => {
+        const now = new Date().toISOString();
+        const today = now.split('T')[0];
+
+        const stockTakeItems: StockTakeItem[] = items.map(item => {
+          const difference = item.actualQuantity - item.expectedQuantity;
+          return {
+            ...item,
+            id: 'sti-' + generateId(),
+            difference,
+            differenceAmount: difference * item.unitCost
+          };
+        });
+
+        const totalDifference = stockTakeItems.reduce((sum, item) => sum + item.difference, 0);
+        const totalDifferenceAmount = stockTakeItems.reduce((sum, item) => sum + item.differenceAmount, 0);
+
+        const newStockTake: StockTake = {
+          id: 'st-' + generateId(),
+          takeDate: today,
+          status: 'draft',
+          items: stockTakeItems,
+          totalDifference,
+          totalDifferenceAmount,
+          remark,
+          createdAt: now
+        };
+
+        set((state) => ({
+          stockTakes: [newStockTake, ...state.stockTakes]
+        }));
+
+        return newStockTake;
+      },
+
+      updateStockTakeItem: (stockTakeId, itemId, actualQuantity) => {
+        set((state) => ({
+          stockTakes: state.stockTakes.map(st => {
+            if (st.id !== stockTakeId || st.status !== 'draft') return st;
+            
+            const updatedItems = st.items.map(item => {
+              if (item.id !== itemId) return item;
+              const difference = actualQuantity - item.expectedQuantity;
+              return {
+                ...item,
+                actualQuantity,
+                difference,
+                differenceAmount: difference * item.unitCost
+              };
+            });
+
+            const totalDifference = updatedItems.reduce((sum, item) => sum + item.difference, 0);
+            const totalDifferenceAmount = updatedItems.reduce((sum, item) => sum + item.differenceAmount, 0);
+
+            return {
+              ...st,
+              items: updatedItems,
+              totalDifference,
+              totalDifferenceAmount
+            };
+          })
+        }));
+      },
+
+      confirmStockTake: (stockTakeId) => {
+        const { stockTakes, medicines, batches, updateMedicine, updateBatch } = get();
+        const stockTake = stockTakes.find(st => st.id === stockTakeId);
+        
+        if (!stockTake || stockTake.status !== 'draft') return false;
+
+        const now = new Date().toISOString();
+
+        stockTake.items.forEach(item => {
+          if (item.difference === 0) return;
+
+          const medicine = medicines.find(m => m.id === item.medicineId);
+          if (medicine) {
+            updateMedicine(item.medicineId, {
+              stock: medicine.stock + item.difference
+            });
+          }
+
+          if (item.batchId) {
+            const batch = batches.find(b => b.id === item.batchId);
+            if (batch) {
+              updateBatch(item.batchId, {
+                quantity: batch.quantity + item.difference
+              });
+            }
+          }
+        });
+
+        set((state) => ({
+          stockTakes: state.stockTakes.map(st =>
+            st.id === stockTakeId
+              ? { ...st, status: 'confirmed', confirmedAt: now }
+              : st
+          )
+        }));
+
+        return true;
+      },
+
+      getStockTakesByDate: (date) => {
+        const { stockTakes } = get();
+        if (!date) return stockTakes;
+        return stockTakes.filter(st => st.takeDate === date);
+      },
+
       getExpiryAlerts: (days = 30) => {
         const { medicines, batches } = get();
         const alerts: ExpiryAlert[] = [];
@@ -585,19 +857,19 @@ export const useStore = create<AppState>()(
 
       getDailySales: (date) => {
         const { sales } = get();
-        const validSales = sales.filter(s => s.status === 'completed');
+        const validSales = sales.filter(s => s.status !== 'refunded');
         return calcDailySales(validSales, date || getTodayString());
       },
 
       getTopSellers: (period, limit = 10) => {
         const { sales, medicines } = get();
-        const validSales = sales.filter(s => s.status === 'completed');
+        const validSales = sales.filter(s => s.status !== 'refunded');
         return calcTopSellers(validSales, medicines, period, limit);
       },
 
       getPromotionEffect: (promotionId) => {
         const { sales, promotions } = get();
-        const validSales = sales.filter(s => s.status === 'completed');
+        const validSales = sales.filter(s => s.status !== 'refunded');
         const promotion = promotions.find((p) => p.id === promotionId);
         if (!promotion) {
           return { normalSales: 0, promotionSales: 0, increaseRate: 0 };
@@ -607,13 +879,16 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'pharmacy-storage',
-      version: 3,
+      version: 4,
       migrate: (persistedState: any) => {
         if (persistedState && !persistedState.batches) {
           persistedState.batches = [];
         }
         if (persistedState && !persistedState.purchaseOrders) {
           persistedState.purchaseOrders = [];
+        }
+        if (persistedState && !persistedState.stockTakes) {
+          persistedState.stockTakes = [];
         }
         if (persistedState && persistedState.sales) {
           persistedState.sales = persistedState.sales.map((s: any) => {
@@ -623,11 +898,22 @@ export const useStore = create<AppState>()(
             }));
             const totalAmount = items.reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
             const totalProfit = items.reduce((sum: number, item: any) => sum + (item.profit || 0), 0);
+            let status = s.status || 'completed';
+            if (status === 'completed' && s.refundItems && s.refundItems.length > 0) {
+              const allRefunded = items.every((saleItem: any) => {
+                const totalRefundedQty = (s.refundItems || [])
+                  .filter((ri: any) => ri.saleItemId === saleItem.id)
+                  .reduce((sum: number, ri: any) => sum + ri.quantity, 0);
+                return totalRefundedQty >= saleItem.totalQuantity;
+              });
+              status = allRefunded ? 'refunded' : 'partially_refunded';
+            }
             return {
               ...s,
-              status: s.status || 'completed',
+              status,
               totalAmount,
               totalProfit,
+              refundItems: s.refundItems || [],
               items
             };
           });
